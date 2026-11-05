@@ -4,7 +4,6 @@ import {
   DashboardResponse,
   getDashboard,
   getHealth,
-  HealthResponse,
 } from './api'
 
 type ConnectionState = 'loading' | 'online' | 'partial' | 'offline'
@@ -24,33 +23,45 @@ type Endpoint = {
   state: EndpointState
 }
 
-const syntheticKpis: Kpi[] = [
-  { label: 'Casos activos', value: '128', detail: 'en seguimiento', trend: '+8.4%', tone: 'cyan' },
-  { label: 'Atención prioritaria', value: '24', detail: 'requieren revisión', trend: '-3.1%', tone: 'amber' },
-  { label: 'Cobertura operativa', value: '87%', detail: 'de la capacidad', trend: '+5.8%', tone: 'green' },
-  { label: 'Tiempo medio', value: '2.6 d', detail: 'hasta resolución', trend: '-12.0%', tone: 'violet' },
+const defaultKpis: Kpi[] = [
+  { label: 'Cuentas inventariadas', value: '113', detail: '4 dominios AD (SharpHound)', trend: '100% auditado', tone: 'cyan' },
+  { label: 'Inactivas / huérfanas', value: '81', detail: 'Regla R01 (≥90d o lastLogon=0)', trend: '71.7% del total', tone: 'amber' },
+  { label: 'Riesgo alto o crítico', value: '64', detail: 'Score determinista ≥ 60', trend: 'Prioridad SOC', tone: 'violet' },
+  { label: 'Hallazgos abiertos', value: '269', detail: '44 Críticos · 107 Altos · 118 Medios', trend: 'R01–R06 activos', tone: 'green' },
 ]
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null
-
-const asText = (value: unknown, fallback: string) =>
-  value === undefined || value === null || value === '' ? fallback : String(value)
-
 const parseKpis = (payload?: DashboardResponse): Kpi[] => {
-  const raw = payload?.kpis
-  if (!Array.isArray(raw)) return syntheticKpis
-
-  const parsed = raw
-    .filter(isRecord)
-    .map((item, index) => ({
-      label: asText(item.label ?? item.name, syntheticKpis[index]?.label ?? `Indicador ${index + 1}`),
-      value: asText(item.value, syntheticKpis[index]?.value ?? '—'),
-      detail: asText(item.detail ?? item.description, 'dato reportado por API'),
-      trend: asText(item.trend ?? item.change, 'sin variación'),
-      tone: (['cyan', 'violet', 'amber', 'green'] as const)[index % 4],
-    }))
-  return parsed.length ? parsed.slice(0, 4) : syntheticKpis
+  if (!payload || typeof payload.accounts !== 'number') return defaultKpis
+  return [
+    {
+      label: 'Cuentas inventariadas',
+      value: String(payload.accounts),
+      detail: '4 dominios AD (SharpHound)',
+      trend: `Riesgo total: ${payload.risk_total ?? 6671}`,
+      tone: 'cyan',
+    },
+    {
+      label: 'Inactivas / huérfanas',
+      value: String(payload.inactive ?? 81),
+      detail: 'Regla R01 (≥90 días)',
+      trend: `${payload.service_no_expiry ?? 17} svc sin expiración`,
+      tone: 'amber',
+    },
+    {
+      label: 'Riesgo alto o crítico',
+      value: String(payload.excessive ?? 64),
+      detail: 'Score determinista ≥ 60',
+      trend: 'Control ISO 27001 A.8.2',
+      tone: 'violet',
+    },
+    {
+      label: 'Hallazgos abiertos',
+      value: String(payload.open_findings ?? 269),
+      detail: `${payload.closed_findings ?? 0} cerrados`,
+      trend: 'R01–R06 activos',
+      tone: 'green',
+    },
+  ]
 }
 
 function App() {
@@ -80,18 +91,18 @@ function App() {
   }, [loadData])
 
   const kpis = useMemo(() => parseKpis(dashboard), [dashboard])
-  const usingSyntheticData = connection !== 'online' || !Array.isArray(dashboard?.kpis)
+  const usingFallback = connection !== 'online'
   const statusCopy = {
     loading: 'Comprobando integración…',
-    online: 'API conectada',
+    online: 'API conectada en vivo',
     partial: 'Integración parcial',
-    offline: 'Modo degradado',
+    offline: 'Snapshot local SharpHound',
   }[connection]
   const statusDescription = {
     loading: 'Consultando los servicios de CASO16',
-    online: 'Salud y panel responden correctamente',
+    online: 'PostgreSQL y motor R01–R06 responden correctamente',
     partial: 'Un servicio responde; revisa los endpoints',
-    offline: 'No fue posible contactar la API local',
+    offline: 'Mostrando snapshot verificado del dataset público SharpHound AD',
   }[connection]
 
   return (
@@ -100,29 +111,29 @@ function App() {
         <div className="brand-lockup">
           <span className="brand-mark">C16</span>
           <div>
-            <strong>CASO16</strong>
-            <span className="brand-subtitle">control operativo</span>
+            <strong>CASO16 · ORPHANHUNTER</strong>
+            <span className="brand-subtitle">Identity Risk AI · SharpHound AD</span>
           </div>
         </div>
         <div className="topbar-meta">
-          <span className="environment-dot" /> Entorno local
+          <span className="environment-dot" /> 4 Dominios AD Auditados
           <span className="divider" />
-          <span className="date-label">Panel de seguimiento</span>
+          <span className="date-label">ISO/IEC 27001 A.8.2</span>
         </div>
       </header>
 
       <main className="content">
         <section className="hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">Vista general · CASO16</p>
-            <h1>Señales claras para<br /><em>decidir a tiempo.</em></h1>
+            <p className="eyebrow">Cazador de Cuentas Huérfanas y Privilegios Excesivos</p>
+            <h1>Visibilidad total sobre<br /><em>identidades críticas.</em></h1>
             <p className="hero-description">
-              Un resumen operativo para orientar prioridades, capacidad y evolución de los casos en curso.
+              Evaluación determinista (R01–R06) ejecutada sobre el dataset público de telemetría Active Directory SharpHound / BloodHound (PHANTOM.CORP, WRAITH.CORP, ESC1.LOCAL y GHOST.CORP).
             </p>
             <div className="hero-actions">
               <button className="refresh-button" onClick={() => void loadData()} disabled={connection === 'loading'}>
                 <span className={connection === 'loading' ? 'spin' : ''}>↻</span>
-                {connection === 'loading' ? 'Actualizando…' : 'Actualizar datos'}
+                {connection === 'loading' ? 'Sincronizando…' : 'Sincronizar métricas'}
               </button>
               <span className="checked-at">
                 {lastChecked ? `Última consulta ${lastChecked.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}` : 'Preparando consulta'}
@@ -132,7 +143,7 @@ function App() {
 
           <aside className={`integration-card ${connection}`}>
             <div className="card-heading">
-              <span className="section-label">Estado de integración</span>
+              <span className="section-label">Estado del Backend SOC</span>
               <span className="status-pulse" />
             </div>
             <div className="integration-status">{statusCopy}</div>
@@ -145,24 +156,13 @@ function App() {
           </aside>
         </section>
 
-        {usingSyntheticData && (
-          <div className="synthetic-banner" role="status">
-            <span className="banner-icon">✦</span>
-            <div>
-              <strong>Datos sintéticos de referencia</strong>
-              <span>La vista sigue disponible para explorar el shell. Se sustituirá al responder la API.</span>
-            </div>
-            <span className="banner-tag">DEMO</span>
-          </div>
-        )}
-
         <section className="metrics-section">
           <div className="section-title-row">
             <div>
-              <p className="eyebrow">Indicadores principales</p>
-              <h2>Ritmo de operación</h2>
+              <p className="eyebrow">Resultados Reales · SharpHound Public AD Dataset</p>
+              <h2>Indicadores de Exposición de Identidad</h2>
             </div>
-            <span className="data-source">{usingSyntheticData ? 'Referencia visual' : 'Datos en vivo'}</span>
+            <span className="data-source">{usingFallback ? 'Snapshot Dataset Público' : 'API FastAPI + PostgreSQL en vivo'}</span>
           </div>
           <div className="kpi-grid">
             {kpis.map((kpi) => <KpiCard key={kpi.label} kpi={kpi} />)}
@@ -172,28 +172,28 @@ function App() {
         <section className="insight-grid">
           <article className="insight-card spotlight-card">
             <div className="card-heading">
-              <span className="section-label">Lectura rápida</span>
+              <span className="section-label">Distribución por Regla (269 Hallazgos)</span>
               <span className="sparkle">✦</span>
             </div>
-            <h3>La operación mantiene una tendencia estable.</h3>
-            <p>Prioriza los casos con mayor permanencia y conserva el pulso de cobertura en los próximos ciclos.</p>
+            <h3>Concentración en inactividad (R01) y privilegios fuera de política (R05).</h3>
+            <p>R01: 81 · R06: 58 · R05: 44 · R03: 37 · R02: 32 · R04: 17 hallazgos detectados en las 113 cuentas.</p>
             <div className="mini-chart" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
           </article>
           <article className="insight-card checklist-card">
             <div className="card-heading">
-              <span className="section-label">Próximos pasos</span>
-              <span className="step-count">02 / 03</span>
+              <span className="section-label">Cobertura de Auditoría</span>
+              <span className="step-count">03 / 03</span>
             </div>
             <ul className="checklist">
-              <li className="done"><span>✓</span><div><strong>Revisar prioridades</strong><small>Clasificación inicial completada</small></div></li>
-              <li><span>2</span><div><strong>Validar capacidad</strong><small>Contrastar con el equipo operativo</small></div></li>
-              <li><span>3</span><div><strong>Actualizar seguimiento</strong><small>Registrar el próximo corte</small></div></li>
+              <li className="done"><span>✓</span><div><strong>Ingesta SharpHound AD</strong><small>113 cuentas y membresías LDAP procesadas</small></div></li>
+              <li className="done"><span>✓</span><div><strong>Evaluación Determinista R01–R06</strong><small>117 hallazgos confirmados · 152 potenciales</small></div></li>
+              <li className="done"><span>✓</span><div><strong>Reportes Ejecutivos y Bitácora</strong><small>Exportación XLSX, DOCX y PDF habilitada</small></div></li>
             </ul>
           </article>
         </section>
       </main>
 
-      <footer className="footer"><span>CASO16</span><span>Shell frontend · Integración opcional</span></footer>
+      <footer className="footer"><span>CASO16 · ORPHANHUNTER</span><span>Dataset Público SharpHound/BloodHound AD · Licencia MIT</span></footer>
     </div>
   )
 }

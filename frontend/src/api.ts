@@ -4,14 +4,23 @@ export const API_BASE_URL = (
 
 export type HealthResponse = {
   status?: string
-  version?: string
+  database?: string
+  mode?: string
+  source?: string
+  accounts_loaded?: number
   [key: string]: unknown
 }
 
 export type DashboardResponse = {
+  accounts?: number
+  inactive?: number
+  orphans?: number
+  excessive?: number
+  service_no_expiry?: number
+  open_findings?: number
+  closed_findings?: number
+  risk_total?: number
   kpis?: unknown
-  updated_at?: string
-  updatedAt?: string
   [key: string]: unknown
 }
 
