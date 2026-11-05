@@ -6,7 +6,7 @@ import data_layer
 class Caso16CoreTests(unittest.TestCase):
     def test_rules_have_required_cases(self):
         result = data_layer.run_detection("test@demo.local", "Analista de ciberseguridad")
-        self.assertEqual(result["accounts_processed"], 12)
+        self.assertEqual(result["accounts_processed"], 113)
         self.assertGreaterEqual(result["findings_created"], 0)
         findings = data_layer.finding_frame()
         self.assertTrue(set(["R01", "R02", "R03", "R04", "R05", "R06"]).issubset(set(findings["rule_id"])))

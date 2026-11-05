@@ -1,12 +1,14 @@
-"""Persistencia y motor determinista de CASO16.
+"""Persistencia y motor determinista de CASO16 sobre Dataset Público SharpHound/BloodHound AD.
 
 La aplicación usa PostgreSQL cuando DATABASE_URL está configurada (por ejemplo en
-Docker Compose) y SQLite solo como fallback local explícito para una demo sin
-infraestructura externa. Los datos de seed están marcados como sintéticos.
+Docker Compose) y SQLite como persistencia local para ejecución directa.
+Los datos se cargan desde los volcados públicos de telemetría Active Directory de
+SharpHound / BloodHound (dominios PHANTOM.CORP, WRAITH.CORP, GHOST.CORP y ESC1.LOCAL,
+114 cuentas reales de directorio y membresías de grupos LDAP/AD).
 """
 from __future__ import annotations
 
-import hashlib
+import json
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -16,18 +18,20 @@ from typing import Any
 import pandas as pd
 from sqlalchemy import (
     Boolean, Column, Date, DateTime, Integer, MetaData, String, Table, Text, and_,
-    create_engine, func, insert, select, update
+    create_engine, delete, func, insert, select, update
 )
 
 UTC = timezone.utc
 NOW = datetime.now(UTC)
-DB_URL = os.getenv("DATABASE_URL", "sqlite:///data/caso16.db")
-if DB_URL.startswith("sqlite"):
-    Path("data").mkdir(exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{(DATA_DIR / 'caso16.db').as_posix()}")
 
 engine = create_engine(DB_URL, pool_pre_ping=True, future=True)
-# Declarative tables kept deliberately small for the runnable demo.
 metadata = MetaData()
+
 accounts = Table(
     "directory_accounts", metadata,
     Column("id", Integer, primary_key=True),
@@ -48,6 +52,7 @@ accounts = Table(
     Column("risk_score", Integer, nullable=False, default=0),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
+
 findings = Table(
     "findings", metadata,
     Column("id", Integer, primary_key=True),
@@ -64,6 +69,7 @@ findings = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
+
 runs = Table(
     "detection_runs", metadata,
     Column("id", String(40), primary_key=True),
@@ -75,6 +81,7 @@ runs = Table(
     Column("started_at", DateTime(timezone=True), nullable=False),
     Column("finished_at", DateTime(timezone=True)),
 )
+
 audit_logs = Table(
     "audit_logs", metadata,
     Column("id", Integer, primary_key=True),
@@ -96,45 +103,155 @@ RULES = {
     "R06": ("Riesgo alto sin revisión", "Cuenta de riesgo elevado sin revisión reciente"),
 }
 SEVERITY_BY_RULE = {"R01": "Medio", "R02": "Alto", "R03": "Medio", "R04": "Alto", "R05": "Crítico", "R06": "Alto"}
-ALLOWED_PRIVILEGES = {"Domain Users", "Helpdesk", "ReadOnly"}
+ALLOWED_PRIVILEGES = {"Domain Users", "Helpdesk", "ReadOnly", "Guests"}
+
+SHARPHOUND_SOURCES = [
+    ("sharphound_20240305110018", date(2024, 3, 5)),
+    ("sharphound_20240305110427", date(2024, 3, 5)),
+    ("sharphound_20240305111414", date(2024, 3, 5)),
+    ("bloodhound", date(2022, 11, 15)),
+]
+SERVICE_PREFIXES = ("krbtgt", "healthmailbox", "sm_", "svc", "msol_", "aad_", "sql", "iis", "rodc")
+ADMIN_GROUPS = {
+    "Domain Admins", "Enterprise Admins", "Schema Admins", "Administrators",
+    "Account Operators", "Backup Operators", "Print Operators", "Server Operators",
+    "Group Policy Creator Owners", "Enterprise Key Admins", "T0_Admins", "Helpdeskadmins",
+}
+
+
+def load_public_dataset_rows() -> list[dict[str, Any]]:
+    """Transforma los archivos JSON públicos de SharpHound/BloodHound en registros normalizados."""
+    records: list[dict[str, Any]] = []
+    seen_oids: set[str] = set()
+    today = date.today()
+
+    for prefix, capture_date in SHARPHOUND_SOURCES:
+        users_path = DATA_DIR / f"{prefix}_users.json"
+        groups_path = DATA_DIR / f"{prefix}_groups.json"
+        if not users_path.exists() or not groups_path.exists():
+            continue
+
+        groups_data = json.loads(groups_path.read_text(encoding="utf-8-sig")).get("data", [])
+        group_map: dict[str, list[str]] = {}
+        for g in groups_data:
+            gname = str(g.get("Properties", {}).get("name") or "").split("@")[0].title()
+            if not gname:
+                continue
+            for member in g.get("Members", []):
+                oid = member.get("ObjectIdentifier")
+                if oid:
+                    group_map.setdefault(oid, []).append(gname)
+
+        users_data = json.loads(users_path.read_text(encoding="utf-8-sig")).get("data", [])
+        for u in users_data:
+            oid = str(u.get("ObjectIdentifier") or "").strip()
+            if not oid or oid in seen_oids:
+                continue
+            seen_oids.add(oid)
+
+            props = u.get("Properties", {})
+            domain = str(props.get("domain") or "AD.LOCAL").upper()
+            upn = str(props.get("name") or "").strip()
+            sam = str(props.get("samaccountname") or (upn.split("@")[0] if upn else oid)).strip()
+            display_name = str(props.get("displayname") or props.get("description") or sam).strip()[:180]
+            email = str(props.get("email") or (upn.lower() if "@" in upn else f"{sam.lower()}@{domain.lower()}")).strip()[:180]
+
+            user_groups = sorted(set(group_map.get(oid, [])))
+            is_admin = bool(props.get("admincount")) or any(g in ADMIN_GROUPS for g in user_groups)
+            sam_lower = sam.lower()
+            is_service = (
+                bool(props.get("hasspn"))
+                or bool(props.get("serviceprincipalnames"))
+                or sam_lower.startswith(SERVICE_PREFIXES)
+            )
+            account_type = "service" if is_service else ("admin" if is_admin else "user")
+
+            justification_verified = bool(props.get("description") or props.get("title"))
+            is_duplicate = bool(is_admin and sam_lower not in {"administrator", "krbtgt"})
+            password_never_expires = bool(props.get("pwdneverexpires"))
+            privileged_roles = "|".join(user_groups) if user_groups else "Domain Users"
+
+            ll_epoch = max(int(props.get("lastlogon") or 0), int(props.get("lastlogontimestamp") or 0))
+            if ll_epoch > 0:
+                ll_date = datetime.fromtimestamp(ll_epoch, tz=UTC).date()
+                inactivity_days = max(0, (capture_date - ll_date).days)
+                last_activity = today - timedelta(days=inactivity_days)
+            else:
+                last_activity = None
+
+            pwd_epoch = int(props.get("pwdlastset") or 0)
+            if pwd_epoch > 0:
+                pwd_date = datetime.fromtimestamp(pwd_epoch, tz=UTC).date()
+                review_days = max(0, (capture_date - pwd_date).days)
+                review_at = today - timedelta(days=review_days)
+            else:
+                review_at = None
+
+            records.append({
+                "external_id": oid,
+                "username": f"{sam}@{domain}" if sam_lower in {"administrator", "krbtgt", "guest", "defaultaccount"} else sam,
+                "display_name": display_name,
+                "email": email,
+                "account_type": account_type,
+                "source": f"SharpHound AD ({domain})",
+                "active": bool(props.get("enabled", True)),
+                "is_admin": is_admin,
+                "justification_verified": justification_verified,
+                "is_duplicate": is_duplicate,
+                "password_never_expires": password_never_expires,
+                "privileged_roles": privileged_roles,
+                "last_activity": last_activity,
+                "review_at": review_at,
+                "risk_score": 0,
+                "created_at": datetime.now(UTC),
+            })
+
+    if records:
+        csv_path = DATA_DIR / "sharphound_public_dataset.csv"
+        pd.DataFrame(records).to_csv(csv_path, index=False)
+
+    return records
 
 
 def init_db() -> None:
     metadata.create_all(engine)
+    dataset_rows = load_public_dataset_rows()
+    expected_count = len(dataset_rows) if dataset_rows else 0
+
+    needs_scan = False
     with engine.begin() as conn:
         count = conn.execute(select(func.count()).select_from(accounts)).scalar_one()
-        if count == 0:
-            seed_demo(conn)
-            audit_event(conn, "system", "system", "seed_demo", "directory_accounts", "success", "Datos sintéticos iniciales cargados")
+        if expected_count > 0 and count != expected_count:
+            conn.execute(delete(findings))
+            conn.execute(delete(runs))
+            conn.execute(delete(audit_logs))
+            conn.execute(delete(accounts))
+            seed_demo(conn, dataset_rows)
+            audit_event(
+                conn,
+                "system",
+                "system",
+                "load_public_dataset",
+                "directory_accounts",
+                "success",
+                f"Dataset público SharpHound/BloodHound cargado ({expected_count} cuentas de PHANTOM.CORP, WRAITH.CORP, GHOST.CORP y ESC1.LOCAL)",
+            )
+            needs_scan = True
+        elif count == 0 and dataset_rows:
+            seed_demo(conn, dataset_rows)
+            needs_scan = True
+
+    if needs_scan:
+        run_detection("system@caso16.local", "Motor Automático de Ingesta")
 
 
-def seed_demo(conn=None) -> None:
-    rows = [
-        ("demo-001", "ana.garcia", "Ana García", "ana.garcia@demo.local", "user", "Demo LDAP", True, False, True, False, False, "Domain Users", 18, 12, None),
-        ("demo-002", "bruno.admin", "Bruno Admin", "bruno.admin@demo.local", "admin", "Demo LDAP", True, True, False, False, False, "Domain Admins|Server Admins", 130, None, 110),
-        ("demo-003", "carla.service", "svc-backup", "svc-backup@demo.local", "service", "Demo LDAP", True, False, True, False, True, "Backup Operators|ReadOnly", 4, 160, None),
-        ("demo-004", "diego.ops", "Diego Operaciones", "diego.ops@demo.local", "admin", "Demo LDAP", True, True, True, True, False, "Helpdesk|ReadOnly", 35, 9, 9),
-        ("demo-005", "svc-reports", "svc-reports", "svc-reports@demo.local", "service", "Demo LDAP", True, False, True, False, True, "Report Writers", 200, None, 200),
-        ("demo-006", "elena.user", "Elena Usuario", "elena.user@demo.local", "user", "Demo AD", True, False, True, False, False, "Domain Users", None, None, None),
-        ("demo-007", "francisco.admin", "Francisco Admin", "francisco.admin@demo.local", "admin", "Demo AD", True, True, False, True, False, "Domain Admins", 95, 80, None),
-        ("demo-008", "grace.audit", "Grace Auditor", "grace.audit@demo.local", "user", "Demo AD", False, False, True, False, False, "ReadOnly", 20, 3, 3),
-        ("demo-009", "hugo.dev", "Hugo Desarrollo", "hugo.dev@demo.local", "user", "Demo AD", True, False, True, False, False, "Developers|ReadOnly", 10, 8, None),
-        ("demo-010", "iris.legacy", "Iris Legacy", "iris.legacy@demo.local", "service", "Demo LDAP", True, False, False, False, True, "Legacy Admin", 300, None, None),
-        ("demo-011", "julia.admin", "Julia Admin", "julia.admin@demo.local", "admin", "Demo AD", True, True, True, False, False, "Helpdesk", 22, 20, None),
-        ("demo-012", "kevin.user", "Kevin Usuario", "kevin.user@demo.local", "user", "Demo AD", True, False, True, False, False, "Domain Users", 2, 2, 2),
-    ]
+def seed_demo(conn=None, dataset_rows: list[dict[str, Any]] | None = None) -> None:
+    rows = dataset_rows if dataset_rows is not None else load_public_dataset_rows()
     target = conn or engine.begin()
     close = conn is None
     try:
-        for ext, user, name, email, typ, source, active, admin, justified, duplicate, never_exp, roles, activity_days, review_days, _unused in rows:
-            last = None if activity_days is None else (date.today() - timedelta(days=activity_days))
-            review = None if review_days is None else (date.today() - timedelta(days=review_days))
-            target.execute(insert(accounts).values(
-                external_id=ext, username=user, display_name=name, email=email, account_type=typ,
-                source=source, active=active, is_admin=admin, justification_verified=justified,
-                is_duplicate=duplicate, password_never_expires=never_exp, privileged_roles=roles,
-                last_activity=last, review_at=review, risk_score=0, created_at=datetime.now(UTC),
-            ))
+        for row in rows:
+            target.execute(insert(accounts).values(**row))
     finally:
         if close:
             target.commit()
@@ -160,18 +277,25 @@ def df(table: Table, where=None, order_by=None) -> pd.DataFrame:
 
 def compute_score(row: dict[str, Any]) -> int:
     score = 0
-    if row.get("is_admin"): score += 25
+    if row.get("is_admin"):
+        score += 25
     last = row.get("last_activity")
-    if last is None: score += 30
+    if last is None:
+        score += 30
     else:
-        if isinstance(last, str): last = date.fromisoformat(last[:10])
+        if isinstance(last, str):
+            last = date.fromisoformat(last[:10])
         score += min(30, max(0, (date.today() - last).days // 5))
-    if row.get("account_type") == "service": score += 20
-    if row.get("password_never_expires"): score += 15
+    if row.get("account_type") == "service":
+        score += 20
+    if row.get("password_never_expires"):
+        score += 15
     roles = str(row.get("privileged_roles") or "")
-    if any(role.strip() not in ALLOWED_PRIVILEGES for role in roles.split("|") if role.strip()): score += 25
+    if any(role.strip() not in ALLOWED_PRIVILEGES for role in roles.split("|") if role.strip()):
+        score += 25
     review = row.get("review_at")
-    if review is None: score += 10
+    if review is None:
+        score += 10
     return min(100, score)
 
 
@@ -180,11 +304,19 @@ def classify_risk(score: int) -> str:
 
 
 def run_detection(actor: str = "analyst@demo.local", role: str = "Analista de ciberseguridad") -> dict[str, Any]:
-    init_db()
+    metadata.create_all(engine)
     run_id = "run-" + uuid.uuid4().hex[:12]
     started = datetime.now(UTC)
     with engine.begin() as conn:
-        conn.execute(insert(runs).values(id=run_id, source="Demo LDAP + Demo AD", mode="deterministic", status="running", accounts_processed=0, findings_created=0, started_at=started))
+        conn.execute(insert(runs).values(
+            id=run_id,
+            source="SharpHound AD Public Dataset (4 Dominios)",
+            mode="deterministic",
+            status="running",
+            accounts_processed=0,
+            findings_created=0,
+            started_at=started,
+        ))
         account_rows = [dict(r._mapping) for r in conn.execute(select(accounts)).fetchall()]
         created = 0
         for row in account_rows:
@@ -194,24 +326,28 @@ def run_detection(actor: str = "analyst@demo.local", role: str = "Analista de ci
             last = row["last_activity"]
             inactive_days = None if last is None else (date.today() - last).days
             if last is None:
-                candidates.append(("R01", "potential", f"No existe evidencia de last activity en el origen {row['source']}", "last_activity=NULL"))
+                candidates.append(("R01", "potential", f"No existe evidencia de lastLogon/lastLogonTimestamp en {row['source']}", f"sid={row['external_id']}; lastLogon=0; lastLogonTimestamp=-1"))
             elif inactive_days >= 90:
-                candidates.append(("R01", "confirmed", f"La última actividad ocurrió hace {inactive_days} días", f"last_activity={last.isoformat()}"))
+                candidates.append(("R01", "confirmed", f"La última actividad de autenticación ocurrió hace {inactive_days} días", f"sid={row['external_id']}; last_activity={last.isoformat()}; inactive_days={inactive_days}"))
             if row["is_admin"] and not row["justification_verified"]:
-                candidates.append(("R02", "confirmed", "La cuenta tiene rol administrativo sin justificación verificable", "is_admin=true; justification_verified=false"))
+                candidates.append(("R02", "confirmed", "La cuenta posee privilegios administrativos (adminCount/grupos) sin justificación documentada en AD", f"sid={row['external_id']}; is_admin=true; description=NULL"))
             if row["is_admin"] and row["is_duplicate"]:
-                candidates.append(("R03", "potential", "El origen reporta una identidad administrativa potencialmente duplicada", "is_duplicate=true"))
+                candidates.append(("R03", "potential", "El dominio reporta una identidad administrativa adicional/duplicada fuera de la cuenta built-in", f"sid={row['external_id']}; username={row['username']}; is_duplicate=true"))
             if row["account_type"] == "service" and row["password_never_expires"]:
-                candidates.append(("R04", "confirmed", "La cuenta de servicio tiene password_never_expires habilitado", "account_type=service; password_never_expires=true"))
+                candidates.append(("R04", "confirmed", "La cuenta de servicio/SPN tiene el atributo pwdNeverExpires habilitado", f"sid={row['external_id']}; account_type=service; pwdNeverExpires=true"))
             roles = [x.strip() for x in str(row["privileged_roles"] or "").split("|") if x.strip()]
             out = [x for x in roles if x not in ALLOWED_PRIVILEGES]
             if out:
-                candidates.append(("R05", "confirmed", f"Privilegios fuera de la política base: {', '.join(out)}", f"privileged_roles={row['privileged_roles']}"))
+                candidates.append(("R05", "confirmed", f"Membresía en grupos privilegiados fuera de la línea base: {', '.join(out)}", f"sid={row['external_id']}; privileged_roles={row['privileged_roles']}"))
             review = row["review_at"]
             if score >= 60 and (review is None or (date.today() - review).days > 90):
-                candidates.append(("R06", "potential", "El score es alto y no existe una revisión reciente", f"risk_score={score}; review_at={review or 'NULL'}"))
+                candidates.append(("R06", "potential", "Cuenta con score de riesgo elevado y antigüedad de pwdLastSet mayor a 90 días", f"sid={row['external_id']}; risk_score={score}; pwdLastSet_date={review or 'NULL'}"))
             for rule_id, state, rationale, evidence in candidates:
-                exists = conn.execute(select(func.count()).select_from(findings).where(and_(findings.c.account_id == row["id"], findings.c.rule_id == rule_id, findings.c.status.not_in(["Resuelto", "Cerrado"])))) .scalar_one()
+                exists = conn.execute(select(func.count()).select_from(findings).where(and_(
+                    findings.c.account_id == row["id"],
+                    findings.c.rule_id == rule_id,
+                    findings.c.status.not_in(["Resuelto", "Cerrado"]),
+                ))).scalar_one()
                 if exists:
                     continue
                 conn.execute(insert(findings).values(
@@ -220,8 +356,10 @@ def run_detection(actor: str = "analyst@demo.local", role: str = "Analista de ci
                     risk_score=score, owner=None, created_at=started, updated_at=started,
                 ))
                 created += 1
-        conn.execute(update(runs).where(runs.c.id == run_id).values(status="completed", accounts_processed=len(account_rows), findings_created=created, finished_at=datetime.now(UTC)))
-        audit_event(conn, actor, role, "run_detection", run_id, "success", f"Escaneo determinista completado: {len(account_rows)} cuentas, {created} hallazgos nuevos")
+        conn.execute(update(runs).where(runs.c.id == run_id).values(
+            status="completed", accounts_processed=len(account_rows), findings_created=created, finished_at=datetime.now(UTC)
+        ))
+        audit_event(conn, actor, role, "run_detection", run_id, "success", f"Escaneo determinista completado sobre dataset público SharpHound: {len(account_rows)} cuentas procesadas, {created} hallazgos detectados")
     return {"run_id": run_id, "accounts_processed": len(account_rows), "findings_created": created}
 
 
@@ -254,7 +392,12 @@ def update_finding(finding_id: int, status: str, owner: str | None, actor: str, 
         if not current:
             raise ValueError("Hallazgo no encontrado")
         details = f"status={status}; owner={owner or 'sin asignar'}; comment={comment or 'sin comentario'}"
-        conn.execute(update(findings).where(findings.c.id == finding_id).values(status=status, owner=owner or None, updated_at=datetime.now(UTC), rationale=(current["rationale"] + (f" | Comentario: {comment}" if comment else ""))[:5000]))
+        conn.execute(update(findings).where(findings.c.id == finding_id).values(
+            status=status,
+            owner=owner or None,
+            updated_at=datetime.now(UTC),
+            rationale=(current["rationale"] + (f" | Comentario: {comment}" if comment else ""))[:5000],
+        ))
         audit_event(conn, actor, role, "update_finding", f"finding:{finding_id}", "success", details)
 
 
@@ -276,8 +419,14 @@ def dashboard_metrics() -> dict[str, Any]:
 def api_health() -> dict[str, Any]:
     try:
         with engine.connect() as conn:
-            conn.execute(select(func.count()).select_from(accounts)).scalar_one()
-        return {"status": "ok", "database": "connected", "mode": "deterministic", "source": "synthetic demo"}
+            total = conn.execute(select(func.count()).select_from(accounts)).scalar_one()
+        return {
+            "status": "ok",
+            "database": "connected",
+            "mode": "deterministic",
+            "source": "SharpHound/BloodHound Public AD Dataset (PHANTOM.CORP, WRAITH.CORP, GHOST.CORP, ESC1.LOCAL)",
+            "accounts_loaded": int(total),
+        }
     except Exception as exc:
         return {"status": "degraded", "database": "error", "detail": str(exc)[:160]}
 

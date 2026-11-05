@@ -62,12 +62,12 @@ def severity_badge(value: str) -> str:
 
 def render_dashboard() -> None:
     st.title("Dashboard operacional", icon=":material/dashboard:")
-    st.caption("Indicadores calculados desde la base persistente del entorno de demostración.")
-    st.warning("Fuente activa: datos sintéticos de Demo AD/Demo LDAP. No hay conexión real a Active Directory ni LDAP.", icon=":material/info:")
+    st.caption("Indicadores calculados sobre la corrida real del dataset público SharpHound / BloodHound Active Directory.")
+    st.info("Dataset público cargado: Telemetría Active Directory SharpHound/BloodHound (113 cuentas únicas en dominios PHANTOM.CORP, WRAITH.CORP, GHOST.CORP y ESC1.LOCAL).", icon=":material/dataset:")
     metrics = dashboard_metrics()
     cols = st.columns(4)
     cards = [
-        ("Cuentas inventariadas", metrics["accounts"], "Fuente demo"),
+        ("Cuentas inventariadas", metrics["accounts"], "4 dominios AD"),
         ("Inactivas / huérfanas", metrics["inactive"], "Umbral R01: 90 días"),
         ("Riesgo alto o crítico", metrics["excessive"], "Score determinista ≥ 60"),
         ("Servicios sin expiración", metrics["service_no_expiry"], "Regla R04"),
@@ -197,7 +197,7 @@ def render_audit() -> None:
 
 def render_reports() -> None:
     st.title("Reportes trazables", icon=":material/description:")
-    st.caption("Formatos generados desde los registros persistidos: Excel, Word y PDF. Origen: demo sintética.")
+    st.caption("Formatos generados desde los registros persistidos: Excel, Word y PDF. Origen: Dataset público SharpHound/BloodHound AD.")
     accounts = account_frame()
     findings = finding_frame()
     audit = audit_frame()
@@ -220,7 +220,7 @@ def render_reports() -> None:
     from docx import Document
     doc = Document()
     doc.add_heading("CASO16 — Reporte ejecutivo de riesgos", 0)
-    doc.add_paragraph(f"Origen: datos sintéticos Demo AD/Demo LDAP | Emisor: {st.session_state.actor} | Generado: {generated}")
+    doc.add_paragraph(f"Origen: Dataset público SharpHound/BloodHound AD (4 dominios) | Emisor: {st.session_state.actor} | Generado: {generated}")
     doc.add_heading("Resumen", level=1)
     m = dashboard_metrics()
     doc.add_paragraph(f"{m['accounts']} cuentas inventariadas, {m['open_findings']} hallazgos abiertos, riesgo acumulado {m['risk_total']}.")
@@ -243,7 +243,7 @@ def render_reports() -> None:
     pdf_bytes = io.BytesIO()
     pdf = SimpleDocTemplate(pdf_bytes, pagesize=landscape(A4), rightMargin=12 * mm, leftMargin=12 * mm, topMargin=12 * mm, bottomMargin=12 * mm)
     styles = getSampleStyleSheet()
-    story = [Paragraph("CASO16 — Reporte ejecutivo de riesgos", styles["Title"]), Paragraph(f"Origen: datos sintéticos Demo AD/Demo LDAP · Emisor: {st.session_state.actor} · {generated}", styles["Normal"]), Spacer(1, 8)]
+    story = [Paragraph("CASO16 — Reporte ejecutivo de riesgos", styles["Title"]), Paragraph(f"Origen: Dataset público SharpHound/BloodHound AD · Emisor: {st.session_state.actor} · {generated}", styles["Normal"]), Spacer(1, 8)]
     rows = [["Regla", "Cuenta", "Severidad", "Evidencia", "Estado", "Score"]]
     for _, row in findings.head(25).iterrows(): rows.append([str(row.rule_id), str(row.username), str(row.severity), str(row.evidence_state), str(row.status), str(row.risk_score)])
     table = Table(rows, repeatRows=1)
