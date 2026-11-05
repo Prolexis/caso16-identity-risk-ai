@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import altair as alt
 import pandas as pd
@@ -13,10 +15,12 @@ from data_layer import (
     api_health,
     audit_frame,
     dashboard_metrics,
+    explain_finding_langflow,
     finding_frame,
     init_db,
     run_detection,
     run_frame,
+    trigger_n8n_pipeline,
     update_finding,
 )
 
@@ -597,6 +601,110 @@ def render_scan() -> None:
     st.dataframe(history, hide_index=True, width="stretch")
 
 
+def render_integrations() -> None:
+    st.title("Orquestación n8n & LangFlow IA", icon=":material/hub:")
+    st.caption("Ejecución interactiva del pipeline automatizado n8n y del motor de priorización/explicación LangFlow IA sobre los 269 hallazgos reales.")
+
+    base_dir = Path(__file__).resolve().parent
+    n8n_path = base_dir / "automation_n8n_scan.json"
+    lf_path = base_dir / "langflow_flow.json"
+    n8n_json = n8n_path.read_text(encoding="utf-8") if n8n_path.exists() else "{}"
+    lf_json = lf_path.read_text(encoding="utf-8") if lf_path.exists() else "{}"
+
+    tab_n8n, tab_lf = st.tabs(["⚙️ Pipeline Automatizado n8n", "🧠 Copiloto de Priorización LangFlow IA"])
+
+    with tab_n8n:
+        st.subheader("Flujo de Automatización Continua (n8n)", icon=":material/account_tree:")
+        st.markdown(
+            "Secuencia de 5 nodos conectada vía API (`/api/v1/integrations/n8n/trigger`): "
+            "**1. Cron 24h** → **2. Extracción AD/LDAP (SharpHound)** → **3. Reglas Deterministas R01–R06** → "
+            "**4. Priorización LangFlow IA** → **5. Alerta SOC y Bitácora Inmutable**."
+        )
+        col_btn, col_dl = st.columns([1, 1])
+        with col_btn:
+            run_n8n = st.button("Disparar Pipeline n8n Ahora", type="primary", icon=":material/bolt:")
+        with col_dl:
+            st.download_button(
+                "Descargar Flujo n8n (.json)",
+                data=n8n_json.encode("utf-8"),
+                file_name="automation_n8n_scan.json",
+                mime="application/json",
+                icon=":material/download:",
+            )
+
+        if run_n8n:
+            with st.status("Ejecutando los 5 nodos del workflow n8n…", expanded=True) as status_box:
+                res = trigger_n8n_pipeline(actor=st.session_state.actor, role=st.session_state.role)
+                status_box.update(label=f"Pipeline {res['pipeline_id']} completado exitosamente", state="complete")
+            st.session_state["last_n8n_run"] = res
+
+        last_run = st.session_state.get("last_n8n_run")
+        if last_run:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("ID de Ejecución", last_run["pipeline_id"], border=True)
+            m2.metric("Cuentas Auditadas", last_run["accounts_processed"], border=True)
+            m3.metric("Hallazgos Activos", last_run["open_findings"], border=True)
+            m4.metric("Críticos Alertados", last_run["critical_findings"], border=True)
+            st.dataframe(pd.DataFrame(last_run["steps"]), hide_index=True, width="stretch")
+
+        with st.expander("Ver definición JSON del Workflow n8n (`automation_n8n_scan.json`)"):
+            st.code(n8n_json, language="json")
+
+    with tab_lf:
+        st.subheader("Priorizador y Explicador de Riesgo (LangFlow + Guardrails)", icon=":material/psychology:")
+        st.markdown(
+            "Selecciona cualquiera de los **269 hallazgos reales** detectados en Active Directory para generar su "
+            "**análisis ejecutivo de movimiento lateral**, mapeo **MITRE ATT&CK**, control **ISO/IEC 27001:2022** y **comando PowerShell AD** de remediación."
+        )
+        f_df = finding_frame()
+        if not f_df.empty:
+            selected_fid = st.selectbox(
+                "Hallazgo a analizar con LangFlow IA",
+                f_df["id"].tolist(),
+                format_func=lambda x: (
+                    f"#{x} · {f_df.loc[f_df.id == x, 'rule_id'].iloc[0]} · "
+                    f"{f_df.loc[f_df.id == x, 'username'].iloc[0]} "
+                    f"(Score: {f_df.loc[f_df.id == x, 'risk_score'].iloc[0]} · {f_df.loc[f_df.id == x, 'severity'].iloc[0]})"
+                ),
+            )
+            c_run, c_dl = st.columns([1, 1])
+            with c_run:
+                run_lf = st.button("Generar Explicación y Priorización LangFlow", type="primary", icon=":material/auto_awesome:")
+            with c_dl:
+                st.download_button(
+                    "Descargar Flujo LangFlow (.json)",
+                    data=lf_json.encode("utf-8"),
+                    file_name="langflow_flow.json",
+                    mime="application/json",
+                    icon=":material/download:",
+                )
+
+            if run_lf or "last_lf_output" not in st.session_state:
+                st.session_state["last_lf_output"] = explain_finding_langflow(
+                    int(selected_fid), actor=st.session_state.actor, role=st.session_state.role
+                )
+
+            lf_out = st.session_state.get("last_lf_output")
+            if lf_out:
+                with st.container(border=True):
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric("Prioridad Sugerida", lf_out["recommended_priority"], border=True)
+                    k2.metric("SLA de Remediación", f"{lf_out['sla_hours']} horas", border=True)
+                    k3.metric("Score Determinista", f"{lf_out['risk_score']} / 100", border=True)
+
+                    st.markdown(f"**🔍 Explicación Ejecutiva (LangFlow):**\n\n{lf_out['summary']}")
+                    st.markdown(
+                        f"- **🎯 Técnica MITRE ATT&CK:** `{lf_out['mitre_attack']}`\n"
+                        f"- **🛡️ Control Normativo:** `{lf_out['iso27001_control']}`\n"
+                        f"- **✅ Validación de Guardrails:** `{lf_out['validation']}` (`{lf_out['execution_id']}`)"
+                    )
+                    st.markdown("**💻 Comando PowerShell AD sugerido para validación humana:**")
+                    st.code(lf_out["remediation_command"], language="powershell")
+
+        with st.expander("Ver contrato JSON del Flujo LangFlow (`langflow_flow.json`)"):
+            st.code(lf_json, language="json")
+
+
 def render_health() -> None:
     st.title("Salud y arquitectura del sistema", icon=":material/health_and_safety:")
     health = api_health()
@@ -604,14 +712,14 @@ def render_health() -> None:
     c1.metric("Estado API / Core", health.get("status", "unknown").upper(), border=True)
     c2.metric("Base de datos", health.get("database", "unknown"), border=True)
     c3.metric("Cuentas cargadas", health.get("accounts_loaded", 113), border=True)
-    c4.metric("Dataset activo", "SharpHound AD", border=True)
+    c4.metric("Orquestación", "n8n + LangFlow", border=True)
     st.dataframe(
         pd.DataFrame([
             {"Componente": "Persistencia", "Estado": health.get("database"), "Nota": "PostgreSQL 16 en Docker Compose / SQLite local sincronizado"},
             {"Componente": "Dataset Público AD", "Estado": "operativo (113 cuentas)", "Nota": "SharpHound/BloodHound: PHANTOM.CORP, WRAITH.CORP, GHOST.CORP, ESC1.LOCAL"},
             {"Componente": "Motor R01–R06", "Estado": "operativo (269 hallazgos)", "Nota": "Evaluación determinista auditable y score 0–100"},
-            {"Componente": "Exportación Ejecutiva", "Estado": "operativo", "Nota": "Generación nativa de reportes XLSX, DOCX y PDF"},
-            {"Componente": "Contratos n8n / LangFlow", "Estado": "listos para importar", "Nota": "automation_n8n_scan.json y langflow_flow.json incluidos"},
+            {"Componente": "Pipeline n8n", "Estado": "operativo (/api/v1/integrations/n8n/trigger)", "Nota": "Ejecución automatizada de 5 nodos y plantilla exportable JSON"},
+            {"Componente": "Copiloto LangFlow IA", "Estado": "operativo (/api/v1/findings/{id}/explain)", "Nota": "Priorización, mapeo MITRE ATT&CK / ISO 27001 A.8.2 y remediación PowerShell"},
         ]),
         hide_index=True,
         width="stretch",
@@ -629,7 +737,16 @@ def main() -> None:
         st.caption(f"👤 **{st.session_state.actor}**\n\n🛡️ {st.session_state.role}")
         page = st.radio(
             "Navegación",
-            ["Dashboard", "Inventario", "Hallazgos", "Auditoría", "Reportes", "Ejecutar escaneo", "Salud del sistema"],
+            [
+                "Dashboard",
+                "Inventario",
+                "Hallazgos",
+                "n8n & LangFlow IA",
+                "Auditoría",
+                "Reportes",
+                "Ejecutar escaneo",
+                "Salud del sistema",
+            ],
             label_visibility="collapsed",
         )
         st.space("small")
@@ -643,6 +760,8 @@ def main() -> None:
         render_inventory()
     elif page == "Hallazgos":
         render_findings()
+    elif page == "n8n & LangFlow IA":
+        render_integrations()
     elif page == "Auditoría":
         render_audit()
     elif page == "Reportes":

@@ -1,8 +1,37 @@
 {
-  "name": "CASO16 risk explanation (optional)",
-  "description": "Contrato conceptual exportable para complementar hallazgos sin modificar evidencia determinista.",
-  "mode": "optional",
-  "input_schema": {"finding_id": "string", "rule_id": "string", "evidence": "string", "risk_score": "integer"},
-  "output_schema": {"summary": "string", "recommended_priority": "string", "model_version": "string", "validation": "string"},
-  "guardrails": ["No credentials or unnecessary PII", "Do not alter evidence", "Record prompt and execution id", "Fallback deterministic if unavailable"]
+  "name": "CASO16 - LangFlow Risk Prioritizer & SOC Explainer",
+  "description": "Flujo LangFlow/LangChain para priorizar hallazgos AD/LDAP, mapear controles ISO/IEC 27001 A.8.2 y MITRE ATT&CK, y recomendar remediación sin alterar la evidencia determinista.",
+  "mode": "hybrid-deterministic-llm",
+  "system_prompt": "Actúa como Analista Senior SOC e Ingeniero IGA (ISO/IEC 27001 A.8.2 y NIST CSF 2.0). Recibirás un hallazgo determinista de Active Directory (regla R01-R06, score 0-100 y atributos LDAP/SID). Sin inventar ni modificar la evidencia técnica, genera: 1) Resumen ejecutivo del riesgo de movimiento lateral, 2) Prioridad de remediación y SLA sugerido, 3) Mapeo MITRE ATT&CK e ISO 27001, y 4) Comando PowerShell AD sugerido para validación humana.",
+  "nodes": [
+    { "id": "input-1", "type": "ChatInput", "label": "Evidencia Determinista (Hallazgo R01-R06)" },
+    { "id": "prompt-2", "type": "PromptTemplate", "label": "Plantilla SOC ISO 27001 A.8.2 + MITRE ATT&CK" },
+    { "id": "llm-3", "type": "LanguageModelComponent", "label": "Motor LLM / Copiloto Determinista" },
+    { "id": "output-4", "type": "StructuredOutput", "label": "JSON de Priorización y Remediación" }
+  ],
+  "input_schema": {
+    "finding_id": "integer",
+    "rule_id": "string",
+    "username": "string",
+    "source": "string",
+    "severity": "string",
+    "evidence": "string",
+    "risk_score": "integer"
+  },
+  "output_schema": {
+    "summary": "string",
+    "recommended_priority": "string",
+    "sla_hours": "integer",
+    "mitre_attack": "string",
+    "iso27001_control": "string",
+    "remediation_command": "string",
+    "model_version": "string",
+    "validation": "string"
+  },
+  "guardrails": [
+    "No credentials or unnecessary PII sent to external models",
+    "Do not alter deterministic evidence or risk_score",
+    "Record execution in append-only audit_logs",
+    "Automatic deterministic SOC fallback when external LLM API is offline"
+  ]
 }

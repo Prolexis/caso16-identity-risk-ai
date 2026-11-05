@@ -11,9 +11,11 @@ from data_layer import (
     account_frame,
     api_health,
     dashboard_metrics,
+    explain_finding_langflow,
     finding_frame,
     init_db,
     run_detection,
+    trigger_n8n_pipeline,
     update_finding,
 )
 
@@ -88,3 +90,17 @@ def patch_finding(finding_id: int, payload: FindingUpdate) -> dict[str, str]:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "updated", "finding_id": str(finding_id)}
+
+
+@app.post("/api/v1/findings/{finding_id}/explain")
+def explain_finding(finding_id: int, payload: ScanRequest) -> dict[str, Any]:
+    try:
+        return explain_finding_langflow(finding_id, payload.actor, payload.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/integrations/n8n/trigger", status_code=201)
+def run_n8n_pipeline(payload: ScanRequest) -> dict[str, Any]:
+    return trigger_n8n_pipeline(payload.actor, payload.role)
+

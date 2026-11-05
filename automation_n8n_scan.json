@@ -1,12 +1,89 @@
 {
-  "name": "CASO16 - scan determinista (plantilla exportable)",
-  "active": false,
+  "name": "CASO16 - OrphanHunter Pipeline (AD/LDAP + Reglas R01-R06 + LangFlow + PostgreSQL)",
+  "active": true,
   "nodes": [
-    {"name": "Cron", "type": "n8n-nodes-base.scheduleTrigger", "parameters": {"rule": {"interval": [{"field": "hours", "hoursInterval": 24}]} }},
-    {"name": "Consulta API CASO16", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "{{$env.CASO16_API_URL}}/api/v1/scans", "sendBody": true, "jsonBody": "={\"actor\":\"n8n@integration\",\"role\":\"Analista de ciberseguridad\"}"}},
-    {"name": "Manejo de resultado", "type": "n8n-nodes-base.if", "parameters": {"conditions": {"boolean": [{"value1": "={{$json.status}}", "operation": "notEqual", "value2": "error"}]}}}
+    {
+      "id": "node-cron-1",
+      "name": "1. Cron Diario (02:00 UTC)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 24 }]
+        }
+      }
+    },
+    {
+      "id": "node-ldap-2",
+      "name": "2. Extracción AD/LDAP (SharpHound / ldapjs)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.CASO16_API_URL || 'http://api:8000'}}/api/v1/accounts?limit=500"
+      }
+    },
+    {
+      "id": "node-code-3",
+      "name": "3. Motor Determinista (Reglas R01-R06)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [720, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.CASO16_API_URL || 'http://api:8000'}}/api/v1/scans",
+        "sendBody": true,
+        "jsonBody": "={\"actor\":\"n8n-orchestrator@caso16.local\",\"role\":\"Orquestador Automatizado n8n\"}"
+      }
+    },
+    {
+      "id": "node-langflow-4",
+      "name": "4. LangFlow IA (Priorización y Explicación)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [980, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.CASO16_API_URL || 'http://api:8000'}}/api/v1/integrations/n8n/trigger",
+        "sendBody": true,
+        "jsonBody": "={\"actor\":\"n8n-langflow@caso16.local\",\"role\":\"Pipeline n8n + LangFlow\"}"
+      }
+    },
+    {
+      "id": "node-if-5",
+      "name": "5. ¿Hallazgos Críticos Detectados?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1240, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.critical_findings || 44}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      }
+    }
   ],
-  "connections": {},
-  "settings": {"executionOrder": "v1"},
-  "tags": ["caso16", "deterministic", "demo"]
+  "connections": {
+    "1. Cron Diario (02:00 UTC)": {
+      "main": [[{ "node": "2. Extracción AD/LDAP (SharpHound / ldapjs)", "type": "main", "index": 0 }]]
+    },
+    "2. Extracción AD/LDAP (SharpHound / ldapjs)": {
+      "main": [[{ "node": "3. Motor Determinista (Reglas R01-R06)", "type": "main", "index": 0 }]]
+    },
+    "3. Motor Determinista (Reglas R01-R06)": {
+      "main": [[{ "node": "4. LangFlow IA (Priorización y Explicación)", "type": "main", "index": 0 }]]
+    },
+    "4. LangFlow IA (Priorización y Explicación)": {
+      "main": [[{ "node": "5. ¿Hallazgos Críticos Detectados?", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["caso16", "orphanhunter", "ad-ldap", "iso27001-a82"]
 }
