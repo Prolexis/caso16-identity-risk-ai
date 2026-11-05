@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: caso16
+      POSTGRES_USER: caso16
+      POSTGRES_PASSWORD: caso16_demo
+    volumes:
+      - caso16_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caso16 -d caso16"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg2://caso16:caso16_demo@db:5432/caso16
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    command: ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg2://caso16:caso16_demo@db:5432/caso16
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+volumes:
+  caso16_pgdata:

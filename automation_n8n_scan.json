@@ -1,0 +1,12 @@
+{
+  "name": "CASO16 - scan determinista (plantilla exportable)",
+  "active": false,
+  "nodes": [
+    {"name": "Cron", "type": "n8n-nodes-base.scheduleTrigger", "parameters": {"rule": {"interval": [{"field": "hours", "hoursInterval": 24}]} }},
+    {"name": "Consulta API CASO16", "type": "n8n-nodes-base.httpRequest", "parameters": {"method": "POST", "url": "{{$env.CASO16_API_URL}}/api/v1/scans", "sendBody": true, "jsonBody": "={\"actor\":\"n8n@integration\",\"role\":\"Analista de ciberseguridad\"}"}},
+    {"name": "Manejo de resultado", "type": "n8n-nodes-base.if", "parameters": {"conditions": {"boolean": [{"value1": "={{$json.status}}", "operation": "notEqual", "value2": "error"}]}}}
+  ],
+  "connections": {},
+  "settings": {"executionOrder": "v1"},
+  "tags": ["caso16", "deterministic", "demo"]
+}

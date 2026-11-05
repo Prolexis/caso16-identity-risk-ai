@@ -1,0 +1,8 @@
+{
+  "name": "CASO16 risk explanation (optional)",
+  "description": "Contrato conceptual exportable para complementar hallazgos sin modificar evidencia determinista.",
+  "mode": "optional",
+  "input_schema": {"finding_id": "string", "rule_id": "string", "evidence": "string", "risk_score": "integer"},
+  "output_schema": {"summary": "string", "recommended_priority": "string", "model_version": "string", "validation": "string"},
+  "guardrails": ["No credentials or unnecessary PII", "Do not alter evidence", "Record prompt and execution id", "Fallback deterministic if unavailable"]
+}
