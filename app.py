@@ -10,9 +10,13 @@ import pandas as pd
 import streamlit as st
 
 import security
+from analytics_ui import render_descriptive, render_evaluation, render_inference, render_metadata, render_upload
+from optuna_ui import render_training
+from reporting import build_report, traceability
 from data_layer import (
     RULES,
     account_frame,
+    authenticate_user,
     api_health,
     audit_frame,
     create_exception,
@@ -149,16 +153,17 @@ def login_view() -> None:
         actor = st.selectbox("Perfil de usuario (RBAC)", list(ROLES), format_func=lambda x: f"{x} · {ROLES[x]}")
         password = st.text_input("Contraseña", type="password", value="demo")
         if st.button("Iniciar sesión", type="primary", icon=":material/login:"):
-            if password != "demo":
+            user = authenticate_user(actor, password)
+            if not user:
                 st.error("Credenciales incorrectas.")
             else:
                 st.session_state.authenticated = True
-                st.session_state.actor = actor
-                st.session_state.role = ROLES[actor]
+                st.session_state.actor = user["email"]
+                st.session_state.role = user["role"]
                 token = security.create_access_token({
-                    "sub": actor.split("@")[0],
-                    "email": actor,
-                    "role": ROLES[actor]
+                    "sub": user["username"],
+                    "email": user["email"],
+                    "role": user["role"]
                 })
                 st.session_state.jwt_token = token
                 st.rerun()
@@ -225,7 +230,7 @@ def render_dashboard() -> None:
                 )
                 .properties(height=260)
             )
-            st.altair_chart(chart_sev, use_container_width=True)
+            st.altair_chart(chart_sev, width="stretch")
 
     with col_right:
         st.subheader("Hallazgos por regla determinista")
@@ -243,12 +248,12 @@ def render_dashboard() -> None:
                 )
                 .properties(height=260)
             )
-            st.altair_chart(chart_rule, use_container_width=True)
+            st.altair_chart(chart_rule, width="stretch")
 
 
 def render_inventory() -> None:
     st.title("📇 Inventario de identidades AD")
-    st.caption("113 cuentas procesadas a partir de volcados SharpHound/BloodHound AD (PHANTOM, WRAITH, GHOST, ESC1).")
+    st.caption("Inventario actual de identidades; cifras calculadas desde la base de datos.")
     data = account_frame()
     if data.empty:
         st.warning("Inventario no disponible. Ejecuta un escaneo desde el menú lateral.")
@@ -268,7 +273,7 @@ def render_inventory() -> None:
     with c3:
         source_filter = st.multiselect("Origen", sorted(data["source"].unique()), default=[])
     if query:
-        mask = data.astype(str).apply(lambda col: col.str.contains(query, case=False, na=False)).any(axis=1)
+        mask = data.astype(str).apply(lambda col: col.str.contains(query, case=False, na=False, regex=False)).any(axis=1)
         data = data[mask]
     if type_filter:
         data = data[data["account_type"].isin(type_filter)]
@@ -354,7 +359,7 @@ def render_findings() -> None:
         st.code(finding["evidence"], language="text")
 
         # Asistente Inteligente de Explicabilidad MITRE ATT&CK / IA
-        with st.expander("🧠 Análisis de Explicabilidad y Mitigación IA (MITRE ATT&CK)", expanded=False):
+        with st.expander("🧠 Explicación determinista y mitigación (MITRE ATT&CK)", expanded=False):
             ai_data = explain_finding_ai(int(selected_id))
             st.markdown(f"**Técnica MITRE ATT&CK:** `{ai_data['mitre_technique']}` — *{ai_data['mitre_tactics']}*")
             st.markdown(f"**Vector de Ataque:** {ai_data['attack_vector_analysis']}")
@@ -551,129 +556,28 @@ def render_audit() -> None:
 
 def render_reports() -> None:
     st.title("📄 Reportes de auditoría")
-    st.caption("Generación multiformato (Excel, Word y PDF) sobre los 269 hallazgos reales del dataset público de Active Directory.")
-    f_df = finding_frame()
-    a_df = account_frame()
-    today_str = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
-
-    c1, c2, c3 = st.columns(3)
-
-    # 1. Excel XLSX
-    with c1:
-        with st.container(border=True):
-            st.markdown("#### 📊 Reporte Técnico (Excel)")
-            st.caption("Hojas estructuradas: Resumen Ejecutivo, Hallazgos AD (269) e Inventario (113).")
-            xlsx = io.BytesIO()
-            with pd.ExcelWriter(xlsx, engine="openpyxl") as writer:
-                # Resumen
-                pd.DataFrame([
-                    {"Métrica": "Cuentas AD auditadas", "Valor": 113},
-                    {"Métrica": "Inactivas / Huérfanas (R01)", "Valor": 81},
-                    {"Métrica": "Cuentas en riesgo alto/crítico", "Valor": 64},
-                    {"Métrica": "Cuentas de servicio sin expiración (R04)", "Valor": 17},
-                    {"Métrica": "Total hallazgos detectados", "Valor": len(f_df)},
-                    {"Métrica": "Riesgo acumulado del directorio", "Valor": int(a_df["risk_score"].sum())},
-                    {"Métrica": "Fecha de emisión", "Valor": today_str},
-                    {"Métrica": "Auditor emisor", "Valor": st.session_state.actor},
-                ]).to_excel(writer, sheet_name="Resumen", index=False)
-                # Hallazgos
-                f_df[["id", "rule_id", "title", "severity", "evidence_state", "status", "username", "source", "risk_score", "rationale"]].to_excel(writer, sheet_name="Hallazgos", index=False)
-                # Inventario
-                a_df[["id", "username", "display_name", "email", "account_type", "source", "active", "is_admin", "password_never_expires", "risk_score"]].to_excel(writer, sheet_name="Inventario AD", index=False)
-            st.download_button(
-                "Descargar Excel (.xlsx)",
-                data=xlsx.getvalue(),
-                file_name="caso16_auditoria_identidades.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                icon=":material/download:",
-            )
-
-    # 2. Word DOCX
-    with c2:
-        with st.container(border=True):
-            st.markdown("#### 📝 Informe Ejecutivo (Word)")
-            st.caption("Documento editable formal con tablas de KPIs, distribución de severidad y recomendaciones.")
-            from docx import Document
-            from docx.shared import Inches, Pt, RGBColor
-            doc = Document()
-            doc.add_heading("CASO16 · Informe Ejecutivo de Riesgo de Identidades AD", level=0)
-            doc.add_paragraph(f"Fecha de emisión: {today_str} | Auditor: {st.session_state.actor} ({st.session_state.role})")
-            doc.add_paragraph("Este informe evalúa el estado de gobierno de identidades en 4 dominios de Active Directory (PHANTOM.CORP, WRAITH.CORP, GHOST.CORP y ESC1.LOCAL).")
-            doc.add_heading("1. Indicadores Globales", level=1)
-            t = doc.add_table(rows=1, cols=2)
-            t.style = "Light Shading Accent 1"
-            hdr = t.rows[0].cells
-            hdr[0].text = "Indicador"
-            hdr[1].text = "Resultado"
-            for k, v in [
-                ("Identidades de directorio auditadas", "113"),
-                ("Cuentas inactivas / huérfanas (R01)", "81"),
-                ("Cuentas de alto riesgo (score >= 60)", "64"),
-                ("Cuentas de servicio sin expiración de clave (R04)", "17"),
-                ("Hallazgos totales detectados", str(len(f_df))),
-                ("Riesgo acumulado", f"{int(a_df['risk_score'].sum())} pts"),
-            ]:
-                row_cells = t.add_row().cells
-                row_cells[0].text = k
-                row_cells[1].text = v
-            doc.add_heading("2. Principales Hallazgos Críticos", level=1)
-            crit = f_df[f_df["severity"] == "Crítico"].head(10)
-            for _, h in crit.iterrows():
-                p = doc.add_paragraph()
-                p.add_run(f"• #{h['id']} [{h['rule_id']}] {h['title']} ({h['username']}): ").bold = True
-                p.add_run(h["rationale"])
-            docx_io = io.BytesIO()
-            doc.save(docx_io)
-            st.download_button(
-                "Descargar Word (.docx)",
-                data=docx_io.getvalue(),
-                file_name="caso16_informe_ejecutivo.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                icon=":material/download:",
-            )
-
-    # 3. PDF
-    with c3:
-        with st.container(border=True):
-            st.markdown("#### 📑 Dictamen de Auditoría (PDF)")
-            st.caption("Documento formal paginado con estilos de tabla y resumen para comités de seguridad.")
-            from reportlab.lib import colors
-            from reportlab.lib.pagesizes import A4, landscape
-            from reportlab.lib.styles import getSampleStyleSheet
-            from reportlab.lib.units import mm
-            from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-            pdf_io = io.BytesIO()
-            doc = SimpleDocTemplate(pdf_io, pagesize=landscape(A4), leftMargin=15 * mm, rightMargin=15 * mm, topMargin=15 * mm, bottomMargin=15 * mm)
-            styles = getSampleStyleSheet()
-            elements = []
-            elements.append(Paragraph("<b>CASO16 — Dictamen de Auditoría de Identidades y Accesos Privilegiados</b>", styles["Title"]))
-            elements.append(Paragraph(f"Emitido el: {today_str} | Auditor responsable: {st.session_state.actor} | Dominio: Multi-Domain SharpHound Telemetry", styles["Normal"]))
-            elements.append(Spacer(1, 10))
-            kpi_data = [
-                ["Métrica Auditada", "Resultado Real", "Detalle Técnico"],
-                ["Cuentas de directorio", "113", "SIDs únicos en PHANTOM, WRAITH, GHOST, ESC1"],
-                ["Cuentas inactivas / huérfanas (R01)", "81", "Sin logon reciente (>= 90 días o lastLogon=0)"],
-                ["Cuentas de riesgo alto/crítico", "64", "Score determinista >= 60 sobre 100"],
-                ["Cuentas de servicio clave eterna (R04)", "17", "pwdNeverExpires = True en cuentas SPN"],
-                ["Hallazgos detectados", str(len(f_df)), "44 Críticos · 107 Altos · 118 Medios"],
-            ]
-            t_kpi = Table(kpi_data, colWidths=[80 * mm, 45 * mm, 140 * mm])
-            t_kpi.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0ea5e9")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
-            ]))
-            elements.append(t_kpi)
-            doc.build(elements)
-            st.download_button(
-                "Descargar PDF (.pdf)",
-                data=pdf_io.getvalue(),
-                file_name="caso16_dictamen_auditoria.pdf",
-                mime="application/pdf",
-                icon=":material/download:",
-            )
+    st.caption("Exportación de la instantánea actual, con hash, usuario, fecha e interpretación. Figuras PNG embebidas a 600 DPI; no se simulan métricas ML.")
+    accounts, findings = account_frame(), finding_frame()
+    st.json(traceability(accounts, st.session_state.actor))
+    formats = [("xlsx", "Excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+               ("docx", "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+               ("pdf", "PDF", "application/pdf")]
+    for column, (fmt, label, mime) in zip(st.columns(3), formats):
+        with column:
+            if st.button(f"Generar {label}", key=f"generate_{fmt}"):
+                try:
+                    with st.spinner(f"Generando {label}…"):
+                        payload = build_report(fmt, accounts, findings, st.session_state.actor)
+                        from data_layer import engine, audit_event
+                        with engine.begin() as conn:
+                            audit_event(conn, st.session_state.actor, st.session_state.role, "export_report", f"report:{fmt}", "success", json.dumps(traceability(accounts, st.session_state.actor)))
+                        st.session_state[f"report_{fmt}"] = payload
+                except Exception as exc:
+                    st.error(f"No se pudo generar el reporte: {exc}")
+            if st.session_state.get(f"report_{fmt}"):
+                st.download_button(f"Descargar {label} (.{fmt})", st.session_state[f"report_{fmt}"],
+                                   file_name=f"caso16_auditoria.{fmt}", mime=mime, key=f"download_{fmt}")
+    st.caption("Los archivos generados conservan su instantánea hasta volver a pulsar Generar.")
 
 
 def render_scan() -> None:
@@ -684,11 +588,12 @@ def render_scan() -> None:
         for rule_id, (name, description) in RULES.items():
             st.markdown(f"- **{rule_id} · {name}:** {description}")
         if st.button("Ejecutar escaneo determinista", type="primary", icon=":material/play_arrow:"):
-            with st.status("Procesando 113 cuentas de Active Directory y evaluando reglas R01–R06…", expanded=False) as status_box:
+            with st.status("Procesando inventario actual de Active Directory y evaluando reglas R01–R06…", expanded=False) as status_box:
                 result = run_detection(st.session_state.actor, st.session_state.role)
                 status_box.update(label="Escaneo completado exitosamente", state="complete")
             st.success(f"{result['accounts_processed']} cuentas procesadas · {result['findings_created']} hallazgos nuevos · corrida `{result['run_id']}`")
             st.rerun()
+    render_upload()
     st.subheader("Historial de ejecuciones")
     history = run_frame()
     st.dataframe(history, hide_index=True, width="stretch")
@@ -772,13 +677,15 @@ def render_integrations() -> None:
                     icon=":material/download:",
                 )
 
-            if run_lf or "last_lf_output" not in st.session_state:
+            if run_lf:
+                st.session_state["last_lf_finding"] = int(selected_fid)
                 st.session_state["last_lf_output"] = explain_finding_langflow(
                     int(selected_fid), actor=st.session_state.actor, role=st.session_state.role
                 )
 
             lf_out = st.session_state.get("last_lf_output")
-            if lf_out:
+            if lf_out and st.session_state.get("last_lf_finding") == int(selected_fid):
+                st.caption(f"Proveedor/modo: {lf_out.get('provider', lf_out.get('mode', 'determinista; proveedor no informado'))}")
                 with st.container(border=True):
                     k1, k2, k3 = st.columns(3)
                     k1.metric("Prioridad Sugerida", lf_out["recommended_priority"], border=True)
@@ -842,6 +749,11 @@ def main() -> None:
             [
                 "Dashboard",
                 "Inventario",
+                "Datos descriptivos",
+                "Entrenamiento",
+                "Evaluación",
+                "Inferencia",
+                "Optimización",
                 "Hallazgos",
                 "n8n & LangFlow IA",
                 "Tickets & SLA",
@@ -856,8 +768,8 @@ def main() -> None:
         )
         st.write("")
         if st.button("Cerrar sesión"):
-            st.session_state.authenticated = False
-            st.session_state.jwt_token = None
+            for key in list(st.session_state):
+                del st.session_state[key]
             st.rerun()
         st.caption("v1.2 · CASO16 Enterprise Identity Risk")
 
@@ -865,6 +777,17 @@ def main() -> None:
         render_dashboard()
     elif page == "Inventario":
         render_inventory()
+        render_metadata(account_frame())
+    elif page == "Datos descriptivos":
+        render_descriptive(account_frame(), finding_frame())
+    elif page == "Entrenamiento":
+        render_training()
+    elif page == "Evaluación":
+        render_evaluation()
+    elif page == "Inferencia":
+        render_inference(account_frame())
+    elif page == "Optimización":
+        render_training(optimization=True)
     elif page == "Hallazgos":
         render_findings()
     elif page == "n8n & LangFlow IA":

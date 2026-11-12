@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: caso16
       POSTGRES_USER: caso16
-      POSTGRES_PASSWORD: caso16_demo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD}
     volumes:
       - caso16_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,7 +15,11 @@ services:
   app:
     build: .
     environment:
-      DATABASE_URL: postgresql+psycopg2://caso16:caso16_demo@db:5432/caso16
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgresql+psycopg2://caso16:${POSTGRES_PASSWORD}@db:5432/caso16
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CASO16_SECRET_KEY: ${CASO16_SECRET_KEY:?Configure CASO16_SECRET_KEY}
+      CASO16_API_URL: http://api:8000/api/v1
     depends_on:
       db:
         condition: service_healthy
@@ -25,7 +29,10 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql+psycopg2://caso16:caso16_demo@db:5432/caso16
+      ENV: ${ENV:-development}
+      DATABASE_URL: postgresql+psycopg2://caso16:${POSTGRES_PASSWORD}@db:5432/caso16
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CASO16_SECRET_KEY: ${CASO16_SECRET_KEY}
     depends_on:
       db:
         condition: service_healthy

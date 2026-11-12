@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
+import config  # Validate environment before reading secrets.
 
 SECRET_KEY = os.getenv("CASO16_SECRET_KEY", "caso16-enterprise-jwt-super-secret-key-2026-sha256")
 ALGORITHM = "HS256"

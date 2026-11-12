@@ -347,10 +347,6 @@ def load_public_dataset_rows() -> list[dict[str, Any]]:
                 "created_at": datetime.now(UTC),
             })
 
-    if records:
-        csv_path = DATA_DIR / "sharphound_public_dataset.csv"
-        pd.DataFrame(records).to_csv(csv_path, index=False)
-
     return records
 
 
@@ -364,8 +360,13 @@ def seed_auxiliary_tables(conn) -> None:
             conn.execute(insert(roles).values(name=role_name, description=desc, permissions=perms, created_at=now_utc))
 
     # 2. Usuarios con hash seguro
-    demo_hash = security.hash_password("demo")
-    for email, full_name, role_name in DEFAULT_USERS:
+    production = os.getenv('ENV', 'development').lower() == 'production'
+    demo_hash = security.hash_password(os.getenv('CASO16_BOOTSTRAP_PASSWORD', 'demo'))
+    if production:
+        for existing in conn.execute(select(users)).mappings():
+            if security.verify_password('demo', existing['hashed_password']):
+                raise RuntimeError('Producción bloqueada: cambie las contraseñas demo existentes')
+    for email, full_name, role_name in ([] if production else DEFAULT_USERS):
         username = email.split("@")[0]
         exists = conn.execute(select(func.count()).select_from(users).where(users.c.username == username)).scalar_one()
         if not exists:
@@ -462,11 +463,7 @@ def init_db() -> None:
     with engine.begin() as conn:
         seed_auxiliary_tables(conn)
         count = conn.execute(select(func.count()).select_from(accounts)).scalar_one()
-        if expected_count > 0 and count != expected_count:
-            conn.execute(delete(findings))
-            conn.execute(delete(runs))
-            conn.execute(delete(audit_logs))
-            conn.execute(delete(accounts))
+        if expected_count > 0 and count == 0:
             seed_demo(conn, dataset_rows)
             audit_event(
                 conn,
@@ -581,6 +578,10 @@ def run_detection(actor: str = "analyst@demo.local", role: str = "Analista de ci
             started_at=started,
         ))
         account_rows = [dict(r._mapping) for r in conn.execute(select(accounts)).fetchall()]
+        policies = {r['code']: r for r in conn.execute(select(security_policies)).mappings()}
+        inactivity_limit = policies.get('POL-INACTIVITY-DAYS', {}).get('threshold_value', 90)
+        high_limit = policies.get('POL-RISK-HIGH-THRESHOLD', {}).get('threshold_value', 60)
+        exempt = {(r['account_id'], r['rule_id']) for r in conn.execute(select(security_exceptions).where(security_exceptions.c.status == 'Activa', security_exceptions.c.expires_at >= date.today())).mappings()}
         created = 0
         for row in account_rows:
             score = compute_score(row)
@@ -590,7 +591,7 @@ def run_detection(actor: str = "analyst@demo.local", role: str = "Analista de ci
             inactive_days = None if last is None else (date.today() - last).days
             if last is None:
                 candidates.append(("R01", "potential", f"No existe evidencia de lastLogon/lastLogonTimestamp en {row['source']}", f"sid={row['external_id']}; lastLogon=0; lastLogonTimestamp=-1"))
-            elif inactive_days >= 90:
+            elif inactive_days >= inactivity_limit:
                 candidates.append(("R01", "confirmed", f"La última actividad de autenticación ocurrió hace {inactive_days} días", f"sid={row['external_id']}; last_activity={last.isoformat()}; inactive_days={inactive_days}"))
             if row["is_admin"] and not row["justification_verified"]:
                 candidates.append(("R02", "confirmed", "La cuenta posee privilegios administrativos (adminCount/grupos) sin justificación documentada en AD", f"sid={row['external_id']}; is_admin=true; description=NULL"))
@@ -603,9 +604,13 @@ def run_detection(actor: str = "analyst@demo.local", role: str = "Analista de ci
             if out:
                 candidates.append(("R05", "confirmed", f"Membresía en grupos privilegiados fuera de la línea base: {', '.join(out)}", f"sid={row['external_id']}; privileged_roles={row['privileged_roles']}"))
             review = row["review_at"]
-            if score >= 60 and (review is None or (date.today() - review).days > 90):
+            if score >= high_limit and (review is None or (date.today() - review).days > inactivity_limit):
                 candidates.append(("R06", "potential", "Cuenta con score de riesgo elevado y antigüedad de pwdLastSet mayor a 90 días", f"sid={row['external_id']}; risk_score={score}; pwdLastSet_date={review or 'NULL'}"))
+            policy_for_rule = {'R01':'POL-INACTIVITY-DAYS','R02':'POL-ADMIN-JUSTIFICATION','R04':'POL-SERVICE-PWD-NEVER-EXPIRES','R06':'POL-RISK-HIGH-THRESHOLD'}
             for rule_id, state, rationale, evidence in candidates:
+                policy = policies.get(policy_for_rule.get(rule_id), {})
+                if not policy.get('is_active', True) or (row['id'], rule_id) in exempt:
+                    continue
                 exists = conn.execute(select(func.count()).select_from(findings).where(and_(
                     findings.c.account_id == row["id"],
                     findings.c.rule_id == rule_id,
@@ -687,6 +692,32 @@ def exception_frame() -> pd.DataFrame:
 # GESTIÓN DE ACCIONES Y SERVICIOS DE DOMINIO
 # ==============================================================================
 
+def require_permission(role: str, permission: str) -> None:
+    """Deny unknown roles; API callers must derive role from authenticated identity."""
+    allowed = next((set(perms.split(',')) for name, _, perms in DEFAULT_ROLES if name == role), set())
+    if permission not in allowed:
+        raise PermissionError(f'El rol {role} no tiene permiso {permission}')
+
+
+def update_account_metadata(account_id: int, changes: dict, actor: str, role: str) -> None:
+    require_permission(role, 'policies')
+    allowed = {'justification_verified', 'review_at', 'privilege_justification'}
+    if set(changes) - allowed:
+        raise ValueError('Campo de metadata no permitido')
+    note = changes.pop('privilege_justification', '')
+    if changes.get('justification_verified') and len(note.strip()) < 5:
+        raise ValueError('Debe documentar la justificación del privilegio')
+    if changes.get('review_at') and changes['review_at'] > date.today():
+        raise ValueError('La revisión no puede ser futura')
+    with engine.begin() as conn:
+        row = conn.execute(select(accounts).where(accounts.c.id == account_id)).mappings().first()
+        if not row:
+            raise ValueError('Cuenta no encontrada')
+        if changes:
+            conn.execute(update(accounts).where(accounts.c.id == account_id).values(**changes, risk_score=compute_score(dict(row, **changes))))
+        audit_event(conn, actor, role, 'update_account_metadata', f'account:{account_id}', 'success', json.dumps(dict(changes, privilege_justification=note), default=str))
+
+
 def authenticate_user(username_or_email: str, plain_password: str) -> dict[str, Any] | None:
     """Verifica credenciales de usuario y retorna perfil o None."""
     with engine.connect() as conn:
@@ -705,6 +736,9 @@ def authenticate_user(username_or_email: str, plain_password: str) -> dict[str, 
 
 
 def create_user(username: str, email: str, plain_password: str, full_name: str, role_name: str, actor: str, actor_role: str) -> dict[str, Any]:
+    require_permission(actor_role, 'users')
+    if role_name not in {r[0] for r in DEFAULT_ROLES}:
+        raise ValueError('Rol desconocido')
     with engine.begin() as conn:
         exists = conn.execute(select(func.count()).select_from(users).where(
             (users.c.username == username) | (users.c.email == email)
@@ -722,6 +756,7 @@ def create_user(username: str, email: str, plain_password: str, full_name: str, 
 
 
 def update_finding(finding_id: int, status: str, owner: str | None, actor: str, role: str, comment: str = "") -> None:
+    require_permission(role, 'write')
     with engine.begin() as conn:
         current = conn.execute(select(findings).where(findings.c.id == finding_id)).mappings().first()
         if not current:
@@ -747,6 +782,7 @@ def create_ticket(
     role: str,
 ) -> str:
     """Crea un ticket de remediación con SLA y trazabilidad."""
+    require_permission(role, 'remediate')
     with engine.begin() as conn:
         seq = conn.execute(select(func.count()).select_from(tickets)).scalar_one() + 1
         t_id = f"TCK-2026-{seq:04d}"
@@ -768,6 +804,7 @@ def create_ticket(
 
 def update_ticket(ticket_id: str, status: str, owner: str | None, resolution_notes: str | None, actor: str, role: str) -> None:
     """Actualiza estado y notas de un ticket."""
+    require_permission(role, 'remediate')
     with engine.begin() as conn:
         current = conn.execute(select(tickets).where(tickets.c.id == ticket_id)).mappings().first()
         if not current:
@@ -786,6 +823,7 @@ def update_ticket(ticket_id: str, status: str, owner: str | None, resolution_not
 
 
 def update_policy(policy_id: int, threshold_value: int, is_active: bool, actor: str, role: str) -> None:
+    require_permission(role, 'policies')
     with engine.begin() as conn:
         conn.execute(update(security_policies).where(security_policies.c.id == policy_id).values(
             threshold_value=threshold_value, is_active=is_active, updated_at=datetime.now(UTC)
@@ -794,6 +832,9 @@ def update_policy(policy_id: int, threshold_value: int, is_active: bool, actor: 
 
 
 def create_exception(account_id: int, rule_id: str, justification: str, approved_by: str, days_valid: int, actor: str, role: str) -> int:
+    require_permission(role, 'policies')
+    if rule_id not in RULES or not 1 <= days_valid <= 365:
+        raise ValueError('Regla o vigencia inválida')
     with engine.begin() as conn:
         now_utc = datetime.now(UTC)
         exp_date = date.today() + timedelta(days=days_valid)
@@ -1055,7 +1096,7 @@ def explain_finding_langflow(finding_id: int, actor: str = "analyst@demo.local",
         "mitre_attack": pb["mitre"],
         "iso27001_control": pb["iso"],
         "remediation_command": pb["cmd"],
-        "model_version": "LangFlow-SOC-Copilot-v1 (Hybrid Deterministic + Guardrails)",
+        "model_version": "deterministic-r01-r06-v1",
         "validation": "verified_against_deterministic_evidence",
     }
     with engine.begin() as conn:
@@ -1066,9 +1107,15 @@ def explain_finding_langflow(finding_id: int, actor: str = "analyst@demo.local",
             "langflow_explain",
             f"finding:{finding_id}",
             "success",
-            f"LangFlow priorizó hallazgo #{finding_id} ({rule_id} · {username}) -> {priority}",
+            f"Heurística determinista priorizó hallazgo #{finding_id} ({rule_id} · {username}) -> {priority}",
         )
-    return output
+    from llm_harness import enrich
+    from xai import explain_account
+    account = account_frame()
+    match = account[account['id'] == int(row['account_id'])]
+    if not match.empty:
+        output['deterministic'] = explain_account(match.iloc[0].to_dict())
+    return enrich(output, actor, role)
 
 
 def trigger_n8n_pipeline(actor: str = "n8n-orchestrator@caso16.local", role: str = "Orquestador Automatizado n8n") -> dict[str, Any]:

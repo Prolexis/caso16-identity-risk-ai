@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+import data_layer as dl
+from sqlalchemy import select
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -137,6 +140,33 @@ def get_current_user_optional(authorization: str | None = Header(default=None)) 
         return None
 
 
+def authenticated_user(current=Depends(get_current_user_optional)):
+    if not current:
+        raise HTTPException(401, 'Se requiere autenticación JWT')
+    with dl.engine.connect() as conn:
+        user = conn.execute(select(dl.users).where(dl.users.c.username == current.get('sub'), dl.users.c.active == True)).mappings().first()
+    if not user:
+        raise HTTPException(401, 'Usuario inactivo o inexistente')
+    return dict(user)
+
+
+def authorize_payload(payload, user, permission):
+    dl.require_permission(user['role'], permission)
+    if hasattr(payload, 'actor'): payload.actor = user['email']
+    if hasattr(payload, 'role'): payload.role = user['role']
+    if hasattr(payload, 'actor_role'): payload.actor_role = user['role']
+
+
+@app.exception_handler(PermissionError)
+async def permission_error(request: Request, exc: PermissionError):
+    return JSONResponse(status_code=403, content={'detail': str(exc)})
+
+
+@app.exception_handler(ValueError)
+async def validation_error(request: Request, exc: ValueError):
+    return JSONResponse(status_code=400, content={'detail': str(exc)})
+
+
 # Base de datos inicializada al cargar data_layer
 
 
@@ -181,7 +211,8 @@ def get_users() -> dict[str, Any]:
 
 
 @app.post("/api/v1/users", status_code=201)
-def create_new_user(payload: UserCreateRequest) -> dict[str, Any]:
+def create_new_user(payload: UserCreateRequest, current=Depends(authenticated_user)) -> dict[str, Any]:
+    authorize_payload(payload, current, 'users')
     try:
         created = create_user(
             payload.username, payload.email, payload.password, payload.full_name,
@@ -225,7 +256,7 @@ def dashboard() -> dict[str, Any]:
 def accounts(limit: int = Query(default=100, ge=1, le=1000), search: str | None = None) -> dict[str, Any]:
     frame = account_frame()
     if search:
-        mask = frame.astype(str).apply(lambda col: col.str.contains(search, case=False, na=False)).any(axis=1)
+        mask = frame.astype(str).apply(lambda col: col.str.contains(search, case=False, na=False, regex=False)).any(axis=1)
         frame = frame[mask]
     frame = frame.head(limit).where(frame.notna(), None)
     return {"items": frame.to_dict(orient="records"), "total": int(len(frame))}
@@ -243,12 +274,14 @@ def findings(status: str | None = None, severity: str | None = None, limit: int 
 
 
 @app.post("/api/v1/scans", status_code=201)
-def scan(payload: ScanRequest) -> dict[str, Any]:
+def scan(payload: ScanRequest, current=Depends(authenticated_user)) -> dict[str, Any]:
+    authorize_payload(payload, current, 'write')
     return run_detection(payload.actor, payload.role)
 
 
 @app.patch("/api/v1/findings/{finding_id}")
-def patch_finding(finding_id: int, payload: FindingUpdate) -> dict[str, str]:
+def patch_finding(finding_id: int, payload: FindingUpdate, current=Depends(authenticated_user)) -> dict[str, str]:
+    authorize_payload(payload, current, 'write')
     try:
         update_finding(finding_id, payload.status, payload.owner, payload.actor, payload.role, payload.comment)
     except ValueError as exc:
@@ -257,7 +290,8 @@ def patch_finding(finding_id: int, payload: FindingUpdate) -> dict[str, str]:
 
 
 @app.post("/api/v1/findings/{finding_id}/explain")
-def explain_finding(finding_id: int, payload: ScanRequest) -> dict[str, Any]:
+def explain_finding(finding_id: int, payload: ScanRequest, current=Depends(authenticated_user)) -> dict[str, Any]:
+    authorize_payload(payload, current, 'read')
     try:
         return explain_finding_langflow(finding_id, payload.actor, payload.role)
     except ValueError as exc:
@@ -269,15 +303,21 @@ def explain_finding(finding_id: int, payload: ScanRequest) -> dict[str, Any]:
 # ==============================================================================
 
 @app.post("/api/v1/ai/explain/{finding_id}")
-def explain_finding(finding_id: int) -> dict[str, Any]:
+def explain_finding_heuristic(finding_id: int, current: dict[str, Any] | None = Depends(get_current_user_optional)) -> dict[str, Any]:
+    actor = current["email"] if current else "anonymous@caso16.local"
+    role = current["role"] if current else "Invitado"
     try:
-        return explain_finding_ai(finding_id)
+        result = explain_finding_ai(finding_id)
+        with dl.engine.begin() as conn:
+            dl.audit_event(conn, actor, role, "explain_finding", f"finding:{finding_id}", "success", "Heurística determinista")
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/integrations/n8n/trigger", status_code=201)
-def run_n8n_pipeline(payload: ScanRequest) -> dict[str, Any]:
+def run_n8n_pipeline(payload: ScanRequest, current=Depends(authenticated_user)) -> dict[str, Any]:
+    authorize_payload(payload, current, 'write')
     return trigger_n8n_pipeline(payload.actor, payload.role)
 
 
@@ -297,7 +337,8 @@ def get_tickets(status: str | None = None, priority: str | None = None) -> dict[
 
 
 @app.post("/api/v1/tickets", status_code=201)
-def create_new_ticket(payload: TicketCreateRequest) -> dict[str, Any]:
+def create_new_ticket(payload: TicketCreateRequest, current=Depends(authenticated_user)) -> dict[str, Any]:
+    authorize_payload(payload, current, 'remediate')
     ticket_id = create_ticket(
         payload.finding_id, payload.title, payload.description,
         payload.priority, payload.owner, payload.sla_days, payload.actor, payload.role
@@ -306,7 +347,8 @@ def create_new_ticket(payload: TicketCreateRequest) -> dict[str, Any]:
 
 
 @app.patch("/api/v1/tickets/{ticket_id}")
-def patch_ticket(ticket_id: str, payload: TicketUpdateRequest) -> dict[str, str]:
+def patch_ticket(ticket_id: str, payload: TicketUpdateRequest, current=Depends(authenticated_user)) -> dict[str, str]:
+    authorize_payload(payload, current, 'remediate')
     try:
         update_ticket(ticket_id, payload.status, payload.owner, payload.resolution_notes, payload.actor, payload.role)
     except ValueError as exc:
@@ -331,7 +373,8 @@ def get_policies() -> dict[str, Any]:
 
 
 @app.patch("/api/v1/policies/{policy_id}")
-def patch_policy(policy_id: int, payload: PolicyUpdateRequest) -> dict[str, str]:
+def patch_policy(policy_id: int, payload: PolicyUpdateRequest, current=Depends(authenticated_user)) -> dict[str, str]:
+    authorize_payload(payload, current, 'policies')
     update_policy(policy_id, payload.threshold_value, payload.is_active, payload.actor, payload.role)
     return {"status": "updated", "policy_id": str(policy_id)}
 
@@ -343,7 +386,8 @@ def get_exceptions() -> dict[str, Any]:
 
 
 @app.post("/api/v1/exceptions", status_code=201)
-def create_new_exception(payload: ExceptionCreateRequest) -> dict[str, Any]:
+def create_new_exception(payload: ExceptionCreateRequest, current=Depends(authenticated_user)) -> dict[str, Any]:
+    authorize_payload(payload, current, 'policies')
     exc_id = create_exception(
         payload.account_id, payload.rule_id, payload.justification,
         payload.approved_by, payload.days_valid, payload.actor, payload.role
@@ -359,3 +403,7 @@ def create_new_exception(payload: ExceptionCreateRequest) -> dict[str, Any]:
 def get_audit_trail(limit: int = Query(default=100, ge=1, le=1000)) -> dict[str, Any]:
     frame = audit_frame().head(limit)
     return {"items": frame.where(frame.notna(), None).to_dict(orient="records"), "total": len(frame)}
+
+
+from api_extensions import make_router
+app.include_router(make_router(authenticated_user))
