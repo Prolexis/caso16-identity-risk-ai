@@ -159,6 +159,7 @@ export function App() {
           onRefreshAll={loadAllData}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          findingsCount={findings.length || 269}
         />
 
         <main className="page-content">
@@ -170,6 +171,7 @@ export function App() {
               topAccounts={accounts}
               onSelectNav={setCurrentNav}
               onExportReport={handleExportGeneral}
+              onRefresh={loadAllData}
             />
           )}
 

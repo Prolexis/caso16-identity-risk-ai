@@ -199,12 +199,12 @@ export const AiTrainingCenter: React.FC<AiTrainingCenterProps> = ({ initialTab =
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* HEADER DEL CENTRO DE ENTRENAMIENTO */}
-      <div className="card" style={{ background: 'linear-gradient(135deg, rgba(13,22,40,0.95), rgba(17,29,50,0.9))', border: '1px solid rgba(129,140,248,0.25)' }}>
+      <div className="page-hero-banner">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
-            <div className="page-eyebrow" style={{ color: 'var(--color-secondary)' }}>LABORATORIO MLOps & MODELOS INTELIGENTES</div>
-            <h1 className="page-title" style={{ fontSize: '26px', margin: '4px 0 6px' }}>AI Model Training Center</h1>
-            <p className="page-desc" style={{ margin: 0 }}>
+            <div className="page-eyebrow">LABORATORIO MLOps & MODELOS INTELIGENTES</div>
+            <h1 className="page-title">AI Model Training Center</h1>
+            <p className="page-desc">
               Entrenamiento riguroso, optimización con Optuna, evaluación ciega (Blind Test 15%) y auditoría de M1 (Random Forest), M2 (XGBoost) y M3 (Isolation Forest).
             </p>
           </div>

@@ -23,6 +23,7 @@ import {
   UserCheck,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from 'lucide-react'
 import { NavItemKey, UserProfile } from '../../types'
 
@@ -124,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!collapsed && (
             <div className="brand-info">
               <span className="brand-title">CASO16</span>
-              <span className="brand-subtitle">AI Security Command</span>
+              <span className="brand-subtitle">Threat Intelligence</span>
             </div>
           )}
         </div>
@@ -132,9 +133,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="sidebar-toggle-btn"
           onClick={onToggleCollapse}
           title={collapsed ? 'Expandir barra lateral' : 'Colapsar barra lateral'}
-          aria-label="Toggle sidebar"
+          aria-label="Alternar barra lateral"
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
         </button>
       </div>
 
@@ -173,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {user.fullName.slice(0, 2).toUpperCase()}
           </div>
           {!collapsed && (
-            <div className="user-details">
+            <div className="user-details" style={{ flex: 1 }}>
               <span className="user-name">{user.fullName}</span>
               <span className="user-role">{user.role}</span>
             </div>
