@@ -5,9 +5,11 @@ import {
   getDashboard,
   getHealth,
 } from './api'
+import { TrainingEngine } from './TrainingEngine'
 
 type ConnectionState = 'loading' | 'online' | 'partial' | 'offline'
 type EndpointState = 'loading' | 'ok' | 'error'
+type ViewMode = 'soc' | 'training'
 
 type Kpi = {
   label: string
@@ -65,6 +67,7 @@ const parseKpis = (payload?: DashboardResponse): Kpi[] => {
 }
 
 function App() {
+  const [viewMode, setViewMode] = useState<ViewMode>('soc')
   const [connection, setConnection] = useState<ConnectionState>('loading')
   const [healthState, setHealthState] = useState<EndpointState>('loading')
   const [dashboardState, setDashboardState] = useState<EndpointState>('loading')
@@ -123,10 +126,29 @@ function App() {
       </header>
 
       <main className="content">
-        <section className="hero-grid">
-          <div className="hero-copy">
-            <p className="eyebrow">Cazador de Cuentas Huérfanas y Privilegios Excesivos</p>
-            <h1>Visibilidad total sobre<br /><em>identidades críticas.</em></h1>
+        <div className="main-view-nav">
+          <button
+            className={`view-nav-btn ${viewMode === 'soc' ? 'active' : ''}`}
+            onClick={() => setViewMode('soc')}
+          >
+            🛡️ Tablero SOC e Identidades
+          </button>
+          <button
+            className={`view-nav-btn ${viewMode === 'training' ? 'active' : ''}`}
+            onClick={() => setViewMode('training')}
+          >
+            🤖 Motor de Entrenamiento IA (M1, M2, M3)
+          </button>
+        </div>
+
+        {viewMode === 'training' ? (
+          <TrainingEngine />
+        ) : (
+          <>
+            <section className="hero-grid">
+              <div className="hero-copy">
+                <p className="eyebrow">Cazador de Cuentas Huérfanas y Privilegios Excesivos</p>
+                <h1>Visibilidad total sobre<br /><em>identidades críticas.</em></h1>
             <p className="hero-description">
               Evaluación determinista (R01–R06) ejecutada sobre el dataset público de telemetría Active Directory SharpHound / BloodHound (PHANTOM.CORP, WRAITH.CORP, ESC1.LOCAL y GHOST.CORP).
             </p>
@@ -191,7 +213,9 @@ function App() {
             </ul>
           </article>
         </section>
-      </main>
+      </>
+    )}
+  </main>
 
       <footer className="footer"><span>CASO16 · ORPHANHUNTER</span><span>Dataset Público SharpHound/BloodHound AD · Licencia MIT</span></footer>
     </div>

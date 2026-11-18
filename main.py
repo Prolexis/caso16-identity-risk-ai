@@ -406,4 +406,8 @@ def get_audit_trail(limit: int = Query(default=100, ge=1, le=1000)) -> dict[str,
 
 
 from api_extensions import make_router
+from training_routes import training_router
+
 app.include_router(make_router(authenticated_user))
+app.include_router(training_router)
+
