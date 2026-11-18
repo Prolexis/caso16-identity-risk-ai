@@ -45,6 +45,7 @@ import { PoliciesAndUsers } from './features/admin/PoliciesAndUsers'
 import { AutomationCenter } from './features/automation/AutomationCenter'
 import { NotificationDrawer } from './components/notifications/NotificationDrawer'
 import { LoginModal } from './components/auth/LoginModal'
+import { LoginPage } from './components/auth/LoginPage'
 import { Database, FileCode, CheckCircle, Info } from 'lucide-react'
 
 const INITIAL_NOTIFICATIONS: SecurityNotification[] = [
@@ -107,6 +108,11 @@ export function App() {
   const [currentNav, setCurrentNav] = useState<NavItemKey>('dashboard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Estado de Autenticación Principal (Pantalla de Login Completa)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('caso16_authenticated') === 'true'
+  })
 
   // Estado de Usuario y Sesión RBAC
   const [user, setUser] = useState<UserProfile>(() => {
@@ -171,8 +177,16 @@ export function App() {
 
   const handleLogin = (newUser: UserProfile) => {
     setUser(newUser)
+    setIsAuthenticated(true)
+    localStorage.setItem('caso16_authenticated', 'true')
     localStorage.setItem('caso16_auth_user', JSON.stringify(newUser))
     showToast(`Autenticado como: ${newUser.fullName} (${newUser.role})`)
+  }
+
+  const handleLogout = () => {
+    setIsAuthenticated(false)
+    localStorage.removeItem('caso16_authenticated')
+    showToast('Sesión cerrada. Regresando a la pantalla de inicio de sesión.')
   }
 
   // Manejo de Notificaciones
@@ -235,6 +249,26 @@ export function App() {
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
+  // Si no está autenticado, muestra la Pantalla de Login Completa ("Login grande afuera")
+  if (!isAuthenticated) {
+    return (
+      <>
+        <LoginPage
+          onLogin={handleLogin}
+          health={health}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
+        {toastMessage && (
+          <div className="floating-toast">
+            <CheckCircle size={16} style={{ color: 'var(--success)' }} />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <div className="command-center-app">
       {/* SIDEBAR NAVEGACIÓN — ESTRUCTURA SOC OPTIMIZADA */}
@@ -250,6 +284,7 @@ export function App() {
           excessive: dashboard?.excessive || 64,
         }}
         onOpenLoginModal={() => setIsLoginOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* ÁREA PRINCIPAL */}
@@ -268,6 +303,7 @@ export function App() {
           unreadNotificationsCount={unreadCount}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenLoginModal={() => setIsLoginOpen(true)}
+          onLogout={handleLogout}
         />
 
         <main className="page-content">

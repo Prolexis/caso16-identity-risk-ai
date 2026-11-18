@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogIn,
+  LogOut,
 } from 'lucide-react'
 import { NavItemKey, UserProfile } from '../../types'
 
@@ -31,6 +32,7 @@ interface SidebarProps {
     excessive?: number
   }
   onOpenLoginModal?: () => void
+  onLogout?: () => void
 }
 
 interface NavGroup {
@@ -51,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   user,
   counts,
   onOpenLoginModal,
+  onLogout,
 }) => {
   // Estructura optimizada conforme a estándares SOC e ITDR (CrowdStrike / Defender / CyberArk)
   const groups: NavGroup[] = [
@@ -152,13 +155,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </nav>
 
-      {/* User Card in Footer with Fast Switch Button */}
+      {/* User Card in Footer with Fast Switch Button & Logout */}
       <div className="sidebar-footer">
         <div
           className="user-mini-card"
-          onClick={onOpenLoginModal}
-          style={{ cursor: onOpenLoginModal ? 'pointer' : 'default' }}
-          title="Haga clic para cambiar de usuario o ver credenciales"
+          onClick={onLogout}
+          style={{ cursor: onLogout ? 'pointer' : 'default' }}
+          title="Haga clic para cerrar sesión y volver a la pantalla de login"
         >
           <div className="user-avatar">
             {userInitials}
@@ -169,8 +172,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="user-role">{user.role}</span>
             </div>
           )}
-          {!collapsed && onOpenLoginModal && (
-            <LogIn size={14} style={{ color: 'var(--muted-foreground)' }} />
+          {!collapsed && onLogout && (
+            <span title="Cerrar sesión" style={{ display: 'flex', alignItems: 'center' }}>
+              <LogOut size={14} style={{ color: 'var(--muted-foreground)' }} />
+            </span>
           )}
         </div>
       </div>

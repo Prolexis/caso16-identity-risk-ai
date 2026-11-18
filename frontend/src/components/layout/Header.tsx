@@ -6,6 +6,7 @@ import {
   Bell,
   User,
   LogIn,
+  LogOut,
   ChevronDown,
 } from 'lucide-react'
 import { HealthResponse, NavItemKey, ThemeMode, UserProfile, UserRole } from '../../types'
@@ -23,7 +24,8 @@ interface HeaderProps {
   onSearchChange: (q: string) => void
   unreadNotificationsCount?: number
   onOpenNotifications: () => void
-  onOpenLoginModal: () => void
+  onOpenLoginModal?: () => void
+  onLogout: () => void
 }
 
 const navLabels: Record<string, { group: string; label: string }> = {
@@ -55,6 +57,7 @@ export const Header: React.FC<HeaderProps> = ({
   unreadNotificationsCount = 5,
   onOpenNotifications,
   onOpenLoginModal,
+  onLogout,
 }) => {
   const currentInfo = navLabels[currentNav] ?? { group: 'Command Center', label: currentNav }
   const isHealthy = health?.status === 'ok'
@@ -144,15 +147,15 @@ export const Header: React.FC<HeaderProps> = ({
           </select>
         </div>
 
-        {/* Botón de Login / Perfil */}
+        {/* Botón de Cerrar Sesión (Volver al Login Grande) */}
         <button
           className="btn btn-secondary btn-sm"
-          onClick={onOpenLoginModal}
-          title="Abrir modal de inicio de sesión con autocompletado"
+          onClick={onLogout}
+          title="Cerrar sesión y volver a la pantalla de login principal"
           style={{ gap: '6px', fontSize: '11.5px', padding: '5px 10px' }}
         >
-          <LogIn size={13} />
-          <span>Login Demo</span>
+          <LogOut size={13} style={{ color: 'var(--destructive)' }} />
+          <span>Cerrar Sesión</span>
         </button>
       </div>
     </header>
