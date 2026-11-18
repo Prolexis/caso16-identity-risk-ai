@@ -15,8 +15,10 @@ import {
   Server,
   KeyRound,
   FileCheck,
+  Sparkles,
 } from 'lucide-react'
 import { DEMO_USERS, HealthResponse, ThemeMode, UserProfile } from '../../types'
+import { CyberThreatVisual } from './CyberThreatVisual'
 
 interface LoginPageProps {
   onLogin: (user: UserProfile) => void
@@ -119,39 +121,31 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               ENTERPRISE IDENTITY THREAT INTELLIGENCE PLATFORM
             </div>
             <h2 className="login-headline">
-              Detección de Cuentas Huérfanas, Privilegios Excesivos y Modelado IA
+              Detección de Cuentas Huérfanas, Privilegios Excesivos y{' '}
+              <span className="gradient-text-cyber">Modelado Predictivo IA</span>
             </h2>
             <p className="login-subtext">
               Plataforma integral de ciberseguridad para auditoría determinista de Active Directory (R01–R06) y
               priorización de riesgos con modelos de Machine Learning M1 (Random Forest), M2 (XGBoost) y M3 (Isolation Forest).
             </p>
 
-            {/* Tarjetas de Capacidades del Sistema */}
-            <div className="login-capabilities-grid">
-              <div className="login-cap-item">
-                <div className="login-cap-icon"><Database size={16} /></div>
-                <div>
-                  <strong>SharpHound AD Telemetry</strong>
-                  <p>4 dominios (PHANTOM, WRAITH, ESC1, GHOST) y 113 identidades consolidadas.</p>
-                </div>
-              </div>
-
-              <div className="login-cap-item">
-                <div className="login-cap-icon"><Cpu size={16} /></div>
-                <div>
-                  <strong>Laboratorio IA & Optuna</strong>
-                  <p>Partición sin fuga 70/15/15 y optimización de hiperparámetros con TPE.</p>
-                </div>
-              </div>
-
-              <div className="login-cap-item">
-                <div className="login-cap-icon"><FileCheck size={16} /></div>
-                <div>
-                  <strong>Evaluación Marco ISO 27001</strong>
-                  <p>Control A.8.2 para gobierno y justificación de derechos de acceso privilegiado.</p>
+            {/* IMAGEN HERO DE CIBERSEGURIDAD EMPRESARIAL */}
+            <div className="login-image-card">
+              <img
+                src="/caso16_login_hero.jpg"
+                alt="CASO16 Active Directory & AI Threat Visual"
+                className="login-hero-img"
+              />
+              <div className="login-image-overlay">
+                <div className="login-image-tag">
+                  <span className="pulse-dot" />
+                  <span>ITDR Active Directory · M1/M2/M3 AI Engine</span>
                 </div>
               </div>
             </div>
+
+            {/* TOPOLOGÍA VISUAL INTERACTIVA Y CHIPS DE TELEMETRÍA */}
+            <CyberThreatVisual />
           </div>
 
           <div className="login-hero-footer">
@@ -164,7 +158,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <div className="card login-form-card">
             <div className="login-card-header">
               <h3 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>
-                Iniciar Sesión
+                Acceso al Command Center
               </h3>
               <p style={{ fontSize: '13px', color: 'var(--muted-foreground)', marginTop: '4px' }}>
                 Haga clic en un rol para <strong>autocompletar e ingresar con 1 clic</strong>:

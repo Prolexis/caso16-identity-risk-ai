@@ -1,9 +1,9 @@
 import { chromium } from 'playwright';
 
-async function testLoginPage() {
-  console.log('Iniciando verificación de la Pantalla de Login Completa (LoginPage)...');
+async function testLoginPageVisual() {
+  console.log('Iniciando verificación visual de la Pantalla de Login con Imagen y Gráfico...');
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 950 } });
   const page = await context.newPage();
 
   // Asegurar que no haya sesión previa
@@ -14,47 +14,38 @@ async function testLoginPage() {
   await page.goto('http://localhost:5173/', { waitUntil: 'networkidle' });
   console.log('Página cargada.');
 
-  // 1. Verificar Pantalla de Login Completa
-  const loginHeadline = page.locator('.login-headline');
-  const hasHeadline = await loginHeadline.count() > 0;
-  console.log('Pantalla de Login Completa visible:', hasHeadline ? 'SÍ' : 'NO');
-  if (hasHeadline) {
-    console.log('  Titular detectado:', (await loginHeadline.textContent()).trim());
-  }
+  // 1. Captura en Modo Oscuro (predeterminado de ciberseguridad)
+  const heroImg = page.locator('img.login-hero-img');
+  console.log('Imagen hero presente:', await heroImg.count() > 0 ? 'SÍ' : 'NO');
 
-  // Capturar pantalla de Login
-  await page.screenshot({ path: 'screenshot_full_login_page.png', fullPage: false });
-  console.log('Captura guardada: screenshot_full_login_page.png');
+  const cyberVisual = page.locator('.cyber-visual-wrapper');
+  console.log('Topología visual interactiva presente:', await cyberVisual.count() > 0 ? 'SÍ' : 'NO');
 
-  // 2. Probar acceso rápido con preset "Superadministrador"
-  console.log('Haciendo clic en preset de acceso rápido: Superadministrador...');
-  const adminPresetBtn = page.locator('.login-preset-card:has-text("Alejandro Morales")');
-  await adminPresetBtn.click();
+  await page.screenshot({ path: 'screenshot_login_pro_dark.png', fullPage: false });
+  console.log('Captura Modo Oscuro guardada: screenshot_login_pro_dark.png');
+
+  // 2. Alternar a Modo Claro
+  const themeBtn = page.locator('button[aria-label*="Alternar tema"]').first();
+  await themeBtn.click();
+  await page.waitForTimeout(400);
+
+  await page.screenshot({ path: 'screenshot_login_pro_light.png', fullPage: false });
+  console.log('Captura Modo Claro guardada: screenshot_login_pro_light.png');
+
+  // 3. Probar autocompletado y acceso inmediato con 1 clic
+  console.log('Probando acceso con 1 clic en preset Analista SOC...');
+  const socPreset = page.locator('.login-preset-card:has-text("Valeria Quispe")');
+  await socPreset.click();
   await page.waitForTimeout(600);
 
-  // 3. Verificar que ingresó al Command Center
-  const securityOverviewTitle = page.locator('h1.page-title:has-text("Security Overview")');
-  const inDashboard = await securityOverviewTitle.count() > 0;
-  console.log('Acceso al Command Center exitoso:', inDashboard ? 'SÍ' : 'NO');
-
-  // Capturar pantalla del Command Center autenticado
-  await page.screenshot({ path: 'screenshot_command_center_authenticated.png', fullPage: false });
-  console.log('Captura guardada: screenshot_command_center_authenticated.png');
-
-  // 4. Probar "Cerrar Sesión" para volver a la pantalla de login grande
-  console.log('Probando botón "Cerrar Sesión" en el header...');
-  const logoutBtn = page.locator('button:has-text("Cerrar Sesión")').first();
-  await logoutBtn.click();
-  await page.waitForTimeout(500);
-
-  const backToLogin = await page.locator('.login-headline').count() > 0;
-  console.log('Retorno a Pantalla de Login exitoso:', backToLogin ? 'SÍ' : 'NO');
+  const securityOverview = page.locator('h1.page-title:has-text("Security Overview")');
+  console.log('Ingreso al Command Center exitoso:', await securityOverview.count() > 0 ? 'SÍ' : 'NO');
 
   await browser.close();
-  console.log('Prueba de Pantalla de Login completada satisfactoriamente.');
+  console.log('Auditoría visual completada con éxito.');
 }
 
-testLoginPage().catch(err => {
-  console.error('Error en prueba de login:', err);
+testLoginPageVisual().catch(err => {
+  console.error('Error en prueba visual:', err);
   process.exit(1);
 });
