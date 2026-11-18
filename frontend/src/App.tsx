@@ -1,234 +1,305 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
-  API_BASE_URL,
+  AuditLogItem,
   DashboardResponse,
+  DirectoryAccount,
+  DirectorySource,
+  ExperimentJob,
+  HealthResponse,
+  NavItemKey,
+  RemediationTicket,
+  SecurityFinding,
+  SecurityPolicy,
+  SystemRole,
+  SystemUser,
+  ThemeMode,
+  UserProfile,
+  UserRole,
+} from './types'
+import {
+  getAccounts,
+  getAuditLogs,
   getDashboard,
+  getDirectories,
+  getFindings,
   getHealth,
-} from './api'
-import { TrainingEngine } from './TrainingEngine'
+  getPolicies,
+  getRoles,
+  getTickets,
+  getTrainingJobs,
+  getUsers,
+  getGeneralReportDownloadUrl,
+} from './services/api'
+import { Sidebar } from './components/layout/Sidebar'
+import { Header } from './components/layout/Header'
+import { SecurityOverview } from './features/dashboard/SecurityOverview'
+import { IdentityInventory } from './features/identities/IdentityInventory'
+import { AiTrainingCenter } from './features/training/AiTrainingCenter'
+import { FindingsManagement } from './features/risk/FindingsManagement'
+import { TicketsManagement } from './features/risk/TicketsManagement'
+import { AuditTrail } from './features/audit/AuditTrail'
+import { ReportCenter } from './features/reports/ReportCenter'
+import { PoliciesAndUsers } from './features/admin/PoliciesAndUsers'
+import { AutomationCenter } from './features/automation/AutomationCenter'
+import { Database, FileCode, Shield } from 'lucide-react'
 
-type ConnectionState = 'loading' | 'online' | 'partial' | 'offline'
-type EndpointState = 'loading' | 'ok' | 'error'
-type ViewMode = 'soc' | 'training'
+export function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    return (localStorage.getItem('caso16_theme') as ThemeMode) || 'dark'
+  })
+  const [currentNav, setCurrentNav] = useState<NavItemKey>('dashboard')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
-type Kpi = {
-  label: string
-  value: string
-  detail: string
-  trend: string
-  tone: 'cyan' | 'violet' | 'amber' | 'green'
-}
+  const [user, setUser] = useState<UserProfile>({
+    username: 'admin@demo.local',
+    email: 'admin@demo.local',
+    fullName: 'Super Administrador SOC',
+    role: 'Superadministrador',
+  })
 
-type Endpoint = {
-  name: string
-  path: string
-  state: EndpointState
-}
+  // Datos en vivo
+  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [loadingHealth, setLoadingHealth] = useState(false)
+  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
+  const [accounts, setAccounts] = useState<DirectoryAccount[]>([])
+  const [findings, setFindings] = useState<SecurityFinding[]>([])
+  const [tickets, setTickets] = useState<RemediationTicket[]>([])
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([])
+  const [policies, setPolicies] = useState<SecurityPolicy[]>([])
+  const [directories, setDirectories] = useState<DirectorySource[]>([])
+  const [users, setUsers] = useState<SystemUser[]>([])
+  const [roles, setRoles] = useState<SystemRole[]>([])
+  const [jobs, setJobs] = useState<ExperimentJob[]>([])
 
-const defaultKpis: Kpi[] = [
-  { label: 'Cuentas inventariadas', value: '113', detail: '4 dominios AD (SharpHound)', trend: '100% auditado', tone: 'cyan' },
-  { label: 'Inactivas / huérfanas', value: '81', detail: 'Regla R01 (≥90d o lastLogon=0)', trend: '71.7% del total', tone: 'amber' },
-  { label: 'Riesgo alto o crítico', value: '64', detail: 'Score determinista ≥ 60', trend: 'Prioridad SOC', tone: 'violet' },
-  { label: 'Hallazgos abiertos', value: '269', detail: '44 Críticos · 107 Altos · 118 Medios', trend: 'R01–R06 activos', tone: 'green' },
-]
+  // Efecto de tema
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('caso16_theme', theme)
+  }, [theme])
 
-const parseKpis = (payload?: DashboardResponse): Kpi[] => {
-  if (!payload || typeof payload.accounts !== 'number') return defaultKpis
-  return [
-    {
-      label: 'Cuentas inventariadas',
-      value: String(payload.accounts),
-      detail: '4 dominios AD (SharpHound)',
-      trend: `Riesgo total: ${payload.risk_total ?? 6671}`,
-      tone: 'cyan',
-    },
-    {
-      label: 'Inactivas / huérfanas',
-      value: String(payload.inactive ?? 81),
-      detail: 'Regla R01 (≥90 días)',
-      trend: `${payload.service_no_expiry ?? 17} svc sin expiración`,
-      tone: 'amber',
-    },
-    {
-      label: 'Riesgo alto o crítico',
-      value: String(payload.excessive ?? 64),
-      detail: 'Score determinista ≥ 60',
-      trend: 'Control ISO 27001 A.8.2',
-      tone: 'violet',
-    },
-    {
-      label: 'Hallazgos abiertos',
-      value: String(payload.open_findings ?? 269),
-      detail: `${payload.closed_findings ?? 0} cerrados`,
-      trend: 'R01–R06 activos',
-      tone: 'green',
-    },
-  ]
-}
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
+  }
 
-function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('soc')
-  const [connection, setConnection] = useState<ConnectionState>('loading')
-  const [healthState, setHealthState] = useState<EndpointState>('loading')
-  const [dashboardState, setDashboardState] = useState<EndpointState>('loading')
-  const [dashboard, setDashboard] = useState<DashboardResponse>()
-  const [lastChecked, setLastChecked] = useState<Date>()
+  const handleChangeRole = (newRole: UserRole) => {
+    setUser((prev) => ({ ...prev, role: newRole }))
+  }
 
-  const loadData = useCallback(async () => {
-    setConnection('loading')
-    setHealthState('loading')
-    setDashboardState('loading')
+  const loadAllData = useCallback(async () => {
+    setLoadingHealth(true)
+    try {
+      const [hRes, dRes, accRes, findRes, tRes, audRes, polRes, dirRes, uRes, rRes, jRes] =
+        await Promise.allSettled([
+          getHealth(),
+          getDashboard(),
+          getAccounts({ limit: 300 }),
+          getFindings({ limit: 300 }),
+          getTickets(),
+          getAuditLogs(100),
+          getPolicies(),
+          getDirectories(),
+          getUsers(),
+          getRoles(),
+          getTrainingJobs(),
+        ])
 
-    const [healthResult, dashboardResult] = await Promise.allSettled([getHealth(), getDashboard()])
-    const healthOk = healthResult.status === 'fulfilled'
-    const dashboardOk = dashboardResult.status === 'fulfilled'
-    setHealthState(healthOk ? 'ok' : 'error')
-    setDashboardState(dashboardOk ? 'ok' : 'error')
-    if (dashboardOk) setDashboard(dashboardResult.value)
-    setConnection(healthOk && dashboardOk ? 'online' : healthOk || dashboardOk ? 'partial' : 'offline')
-    setLastChecked(new Date())
+      if (hRes.status === 'fulfilled') setHealth(hRes.value)
+      if (dRes.status === 'fulfilled') setDashboard(dRes.value)
+      if (accRes.status === 'fulfilled') setAccounts(accRes.value.items)
+      if (findRes.status === 'fulfilled') setFindings(findRes.value.items)
+      if (tRes.status === 'fulfilled') setTickets(tRes.value.items)
+      if (audRes.status === 'fulfilled') setAuditLogs(audRes.value.items)
+      if (polRes.status === 'fulfilled') setPolicies(polRes.value.items)
+      if (dirRes.status === 'fulfilled') setDirectories(dirRes.value.items)
+      if (uRes.status === 'fulfilled') setUsers(uRes.value.items)
+      if (rRes.status === 'fulfilled') setRoles(rRes.value.items)
+      if (jRes.status === 'fulfilled') setJobs(jRes.value.jobs)
+    } catch (err) {
+      console.error('Error sincronizando datos:', err)
+    } finally {
+      setLoadingHealth(false)
+    }
   }, [])
 
   useEffect(() => {
-    void loadData()
-  }, [loadData])
+    void loadAllData()
+  }, [loadAllData])
 
-  const kpis = useMemo(() => parseKpis(dashboard), [dashboard])
-  const usingFallback = connection !== 'online'
-  const statusCopy = {
-    loading: 'Comprobando integración…',
-    online: 'API conectada en vivo',
-    partial: 'Integración parcial',
-    offline: 'Snapshot local SharpHound',
-  }[connection]
-  const statusDescription = {
-    loading: 'Consultando los servicios de CASO16',
-    online: 'PostgreSQL y motor R01–R06 responden correctamente',
-    partial: 'Un servicio responde; revisa los endpoints',
-    offline: 'Mostrando snapshot verificado del dataset público SharpHound AD',
-  }[connection]
+  const handleExportGeneral = (format: 'pdf' | 'docx' | 'xlsx') => {
+    window.open(getGeneralReportDownloadUrl(format), '_blank')
+  }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <span className="brand-mark">C16</span>
-          <div>
-            <strong>CASO16 · ORPHANHUNTER</strong>
-            <span className="brand-subtitle">Identity Risk AI · SharpHound AD</span>
-          </div>
-        </div>
-        <div className="topbar-meta">
-          <span className="environment-dot" /> 4 Dominios AD Auditados
-          <span className="divider" />
-          <span className="date-label">ISO/IEC 27001 A.8.2</span>
-        </div>
-      </header>
+    <div className="command-center-app">
+      {/* SIDEBAR NAVEGACIÓN */}
+      <Sidebar
+        currentNav={currentNav}
+        onSelectNav={setCurrentNav}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        user={user}
+        counts={{
+          findings: findings.length || 269,
+          orphans: dashboard?.inactive || 81,
+          excessive: dashboard?.excessive || 64,
+        }}
+      />
 
-      <main className="content">
-        <div className="main-view-nav">
-          <button
-            className={`view-nav-btn ${viewMode === 'soc' ? 'active' : ''}`}
-            onClick={() => setViewMode('soc')}
-          >
-            🛡️ Tablero SOC e Identidades
-          </button>
-          <button
-            className={`view-nav-btn ${viewMode === 'training' ? 'active' : ''}`}
-            onClick={() => setViewMode('training')}
-          >
-            🤖 Motor de Entrenamiento IA (M1, M2, M3)
-          </button>
-        </div>
+      {/* ÁREA PRINCIPAL */}
+      <div className="main-wrapper">
+        <Header
+          currentNav={currentNav}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          user={user}
+          onChangeRole={handleChangeRole}
+          health={health}
+          loadingHealth={loadingHealth}
+          onRefreshAll={loadAllData}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
 
-        {viewMode === 'training' ? (
-          <TrainingEngine />
-        ) : (
-          <>
-            <section className="hero-grid">
-              <div className="hero-copy">
-                <p className="eyebrow">Cazador de Cuentas Huérfanas y Privilegios Excesivos</p>
-                <h1>Visibilidad total sobre<br /><em>identidades críticas.</em></h1>
-            <p className="hero-description">
-              Evaluación determinista (R01–R06) ejecutada sobre el dataset público de telemetría Active Directory SharpHound / BloodHound (PHANTOM.CORP, WRAITH.CORP, ESC1.LOCAL y GHOST.CORP).
-            </p>
-            <div className="hero-actions">
-              <button className="refresh-button" onClick={() => void loadData()} disabled={connection === 'loading'}>
-                <span className={connection === 'loading' ? 'spin' : ''}>↻</span>
-                {connection === 'loading' ? 'Sincronizando…' : 'Sincronizar métricas'}
-              </button>
-              <span className="checked-at">
-                {lastChecked ? `Última consulta ${lastChecked.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}` : 'Preparando consulta'}
-              </span>
-            </div>
-          </div>
+        <main className="page-content">
+          {/* 1. DASHBOARD OVERVIEW */}
+          {(currentNav === 'dashboard' || currentNav === 'security-monitor') && (
+            <SecurityOverview
+              dashboard={dashboard}
+              health={health}
+              topAccounts={accounts}
+              onSelectNav={setCurrentNav}
+              onExportReport={handleExportGeneral}
+            />
+          )}
 
-          <aside className={`integration-card ${connection}`}>
-            <div className="card-heading">
-              <span className="section-label">Estado del Backend SOC</span>
-              <span className="status-pulse" />
+          {/* 2. GESTIÓN DE IDENTIDADES */}
+          {currentNav === 'identities' && (
+            <IdentityInventory
+              accounts={accounts}
+              filterType="all"
+              onRefresh={loadAllData}
+            />
+          )}
+          {currentNav === 'orphans' && (
+            <IdentityInventory
+              accounts={accounts}
+              filterType="orphans"
+              onRefresh={loadAllData}
+            />
+          )}
+          {currentNav === 'excessive-privs' && (
+            <IdentityInventory
+              accounts={accounts}
+              filterType="excessive"
+              onRefresh={loadAllData}
+            />
+          )}
+          {currentNav === 'directories' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="card">
+                <div className="page-eyebrow">FUENTES DE IDENTIDAD ACTIVAS (M04)</div>
+                <h2 className="page-title" style={{ fontSize: '24px' }}>Directorios Active Directory / LDAP</h2>
+                <p className="page-desc" style={{ margin: '4px 0 16px' }}>
+                  Conectores configurados sobre el Dataset de Telemetría SharpHound AD.
+                </p>
+                <div className="grid-cols-2">
+                  {directories.map((dir) => (
+                    <div key={dir.id} className="card" style={{ background: 'var(--bg-elevated)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                        <Database size={18} color="var(--color-primary)" />
+                        <strong style={{ fontSize: '15px' }}>{dir.name}</strong>
+                        <span className="badge success">{dir.status}</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div>Dominio: <code>{dir.domain}</code></div>
+                        <div>Servidor: <code>{dir.server_url}</code></div>
+                        <div>Cuentas Sincronizadas: <strong>{dir.accounts_count}</strong></div>
+                        <div>Última Sincronización: {new Date(dir.last_sync_at).toLocaleString('es-PE')}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="integration-status">{statusCopy}</div>
-            <p>{statusDescription}</p>
-            <div className="endpoint-summary">
-              <EndpointRow name="Health check" path="/health" state={healthState} />
-              <EndpointRow name="Dashboard" path="/dashboard" state={dashboardState} />
-            </div>
-            <code className="api-origin">{API_BASE_URL}</code>
-          </aside>
-        </section>
+          )}
 
-        <section className="metrics-section">
-          <div className="section-title-row">
-            <div>
-              <p className="eyebrow">Resultados Reales · SharpHound Public AD Dataset</p>
-              <h2>Indicadores de Exposición de Identidad</h2>
-            </div>
-            <span className="data-source">{usingFallback ? 'Snapshot Dataset Público' : 'API FastAPI + PostgreSQL en vivo'}</span>
-          </div>
-          <div className="kpi-grid">
-            {kpis.map((kpi) => <KpiCard key={kpi.label} kpi={kpi} />)}
-          </div>
-        </section>
+          {/* 3. INTELIGENCIA ARTIFICIAL (M1, M2, M3, EDA, OPTUNA) */}
+          {currentNav === 'ai-training-center' && <AiTrainingCenter initialTab="overview" />}
+          {currentNav === 'ai-eda' && <AiTrainingCenter initialTab="eda" />}
+          {currentNav === 'ai-models-config' && <AiTrainingCenter initialTab="configuration" />}
+          {currentNav === 'ai-execution' && <AiTrainingCenter initialTab="execution" />}
+          {currentNav === 'ai-evaluation' && <AiTrainingCenter initialTab="evaluation" />}
+          {currentNav === 'ai-comparison' && <AiTrainingCenter initialTab="comparison" />}
+          {currentNav === 'ai-explainability' && <AiTrainingCenter initialTab="overview" />}
 
-        <section className="insight-grid">
-          <article className="insight-card spotlight-card">
-            <div className="card-heading">
-              <span className="section-label">Distribución por Regla (269 Hallazgos)</span>
-              <span className="sparkle">✦</span>
+          {/* 4. GESTIÓN DE RIESGOS */}
+          {currentNav === 'findings' && (
+            <FindingsManagement findings={findings} onRefresh={loadAllData} />
+          )}
+          {currentNav === 'tickets' && (
+            <TicketsManagement tickets={tickets} onRefresh={loadAllData} />
+          )}
+          {currentNav === 'rules' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="card">
+                <div className="page-eyebrow">CATÁLOGO DE AUDITORÍA REGULATORIA</div>
+                <h2 className="page-title" style={{ fontSize: '24px' }}>Reglas de Detección Determinista (R01–R06)</h2>
+                <p className="page-desc" style={{ margin: '4px 0 16px' }}>
+                  Reglas matemáticas y lógicas verificables que fundamentan los hallazgos de seguridad sin opacidad.
+                </p>
+                <div className="grid-cols-2">
+                  {[
+                    { id: 'R01', name: 'Inactividad Prolongada', desc: 'Cuenta sin inicio de sesión durante 90 días o más (lastLogon / lastLogonTimestamp).', sev: 'Medio', iso: 'A.8.2' },
+                    { id: 'R02', name: 'Privilegio Administrativo sin Justificación', desc: 'Cuenta perteneciente a grupos Domain Admins sin justificación formal verificada.', sev: 'Alto', iso: 'A.9.2' },
+                    { id: 'R03', name: 'Cuenta Administrativa Duplicada', desc: 'Existencia de cuentas administrativas redundantes o clones sin supervisión.', sev: 'Medio', iso: 'A.9.2' },
+                    { id: 'R04', name: 'Contraseña de Servicio no Expira', desc: 'Cuenta de tipo servicio con flag pwdNeverExpires activo.', sev: 'Alto', iso: 'A.9.4' },
+                    { id: 'R05', name: 'Privilegios Inconsistentes', desc: 'Asignación de roles fuera de la política permitida de mínimo privilegio.', sev: 'Crítico', iso: 'A.8.2' },
+                    { id: 'R06', name: 'Riesgo Alto sin Revisión', desc: 'Identidad con score de riesgo acumulado ≥ 60 sin revisión formal en más de 90 días.', sev: 'Alto', iso: 'A.9.4' },
+                  ].map((rule) => (
+                    <div key={rule.id} className="card" style={{ background: 'var(--bg-elevated)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <FileCode size={18} color="var(--color-primary)" />
+                          <strong style={{ fontSize: '15px' }}>{rule.id}: {rule.name}</strong>
+                        </div>
+                        <span className={`badge ${rule.sev === 'Crítico' ? 'critical' : rule.sev === 'Alto' ? 'high' : 'medium'}`}>
+                          {rule.sev}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                        {rule.desc}
+                      </p>
+                      <div style={{ marginTop: '10px', fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                        Control de Seguridad: ISO/IEC 27001 {rule.iso}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <h3>Concentración en inactividad (R01) y privilegios fuera de política (R05).</h3>
-            <p>R01: 81 · R06: 58 · R05: 44 · R03: 37 · R02: 32 · R04: 17 hallazgos detectados en las 113 cuentas.</p>
-            <div className="mini-chart" aria-hidden="true"><i /><i /><i /><i /><i /><i /><i /></div>
-          </article>
-          <article className="insight-card checklist-card">
-            <div className="card-heading">
-              <span className="section-label">Cobertura de Auditoría</span>
-              <span className="step-count">03 / 03</span>
-            </div>
-            <ul className="checklist">
-              <li className="done"><span>✓</span><div><strong>Ingesta SharpHound AD</strong><small>113 cuentas y membresías LDAP procesadas</small></div></li>
-              <li className="done"><span>✓</span><div><strong>Evaluación Determinista R01–R06</strong><small>117 hallazgos confirmados · 152 potenciales</small></div></li>
-              <li className="done"><span>✓</span><div><strong>Reportes Ejecutivos y Bitácora</strong><small>Exportación XLSX, DOCX y PDF habilitada</small></div></li>
-            </ul>
-          </article>
-        </section>
-      </>
-    )}
-  </main>
+          )}
 
-      <footer className="footer"><span>CASO16 · ORPHANHUNTER</span><span>Dataset Público SharpHound/BloodHound AD · Licencia MIT</span></footer>
+          {/* 5. AUTOMATIZACIÓN */}
+          {currentNav === 'automation' && <AutomationCenter />}
+
+          {/* 6. REPORTES Y AUDITORÍA */}
+          {currentNav === 'reports' && <ReportCenter jobs={jobs} />}
+          {currentNav === 'audit' && <AuditTrail logs={auditLogs} />}
+
+          {/* 7. ADMINISTRACIÓN */}
+          {(currentNav === 'policies' || currentNav === 'users-roles') && (
+            <PoliciesAndUsers
+              policies={policies}
+              users={users}
+              roles={roles}
+              onRefresh={loadAllData}
+            />
+          )}
+        </main>
+      </div>
     </div>
   )
-}
-
-function EndpointRow({ name, path, state }: Endpoint) {
-  const label = state === 'loading' ? 'consultando' : state === 'ok' ? 'operativo' : 'sin respuesta'
-  return <div className="endpoint-row"><div><span className={`endpoint-dot ${state}`} /> <strong>{name}</strong></div><span><code>{path}</code> · {label}</span></div>
-}
-
-function KpiCard({ kpi }: { kpi: Kpi }) {
-  return <article className={`kpi-card ${kpi.tone}`}><div className="kpi-topline"><span>{kpi.label}</span><span className="kpi-arrow">↗</span></div><strong className="kpi-value">{kpi.value}</strong><div className="kpi-footer"><span>{kpi.detail}</span><b>{kpi.trend}</b></div></article>
 }
 
 export default App

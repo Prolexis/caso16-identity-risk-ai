@@ -405,6 +405,30 @@ def get_audit_trail(limit: int = Query(default=100, ge=1, le=1000)) -> dict[str,
     return {"items": frame.where(frame.notna(), None).to_dict(orient="records"), "total": len(frame)}
 
 
+# ==============================================================================
+# ENDPOINT DE REPORTES GENERALES SOC (M11)
+# ==============================================================================
+
+@app.get("/api/v1/reports/export")
+def export_general_report(format: str = Query(default="pdf", pattern="^(pdf|docx|xlsx)$"), actor: str = Query(default="auditor@demo.local")):
+    from reporting import build_report
+    from fastapi.responses import Response
+    accounts = account_frame()
+    findings = finding_frame()
+    content = build_report(format, accounts, findings, actor)
+    media_types = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    return Response(
+        content=content,
+        media_type=media_types[format],
+        headers={"Content-Disposition": f'attachment; filename="CASO16_Reporte_General.{format}"'},
+    )
+
+
+
 from api_extensions import make_router
 from training_routes import training_router
 
