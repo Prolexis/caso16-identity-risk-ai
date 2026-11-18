@@ -83,7 +83,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       {/* 1. BARRA SUPERIOR ESTRUCTURADA Y ALINEADA */}
       <header className="login-header-bar">
         <div className="login-header-brand">
-          <div className="brand-badge" style={{ width: '34px', height: '34px', fontSize: '13px' }}>
+          <div className="brand-badge" style={{ width: '38px', height: '38px', fontSize: '15px' }}>
             C16
           </div>
           <div className="login-brand-meta">
@@ -107,17 +107,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             title={theme === 'dark' ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'}
             aria-label="Alternar tema"
           >
-            {theme === 'dark' ? <Sun size={15} style={{ color: 'var(--warning)' }} /> : <Moon size={15} style={{ color: 'var(--primary)' }} />}
+            {theme === 'dark' ? <Sun size={16} style={{ color: 'var(--warning)' }} /> : <Moon size={16} style={{ color: 'var(--primary)' }} />}
           </button>
         </div>
       </header>
 
-      {/* 2. ESCENARIO CENTRAL PERFECTAMENTE CENTRADO EN LA PANTALLA */}
+      {/* 2. ESCENARIO CENTRAL PROMINENTE Y EQUILIBRADO */}
       <main className="login-main-stage">
         <div className="login-stage-container">
           {/* PANEL IZQUIERDO: SHOWCASE CORPORATIVO */}
           <div className="login-hero-panel">
-            <div className="page-eyebrow" style={{ letterSpacing: '0.08em', fontSize: '11px', marginBottom: '6px' }}>
+            <div className="page-eyebrow" style={{ letterSpacing: '0.08em', fontSize: '11.5px', marginBottom: '6px' }}>
               ENTERPRISE IDENTITY THREAT INTELLIGENCE
             </div>
             <h1 className="login-headline">
@@ -125,11 +125,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <span className="gradient-text-cyber">Modelado IA</span>
             </h1>
             <p className="login-subtext">
-              Plataforma de ciberseguridad para auditoría determinista de Active Directory (R01–R06) y
+              Plataforma integral de ciberseguridad para auditoría determinista de Active Directory (R01–R06) y
               priorización de riesgos con Machine Learning M1 (Random Forest), M2 (XGBoost) y M3 (Isolation Forest).
             </p>
 
-            {/* IMAGEN HERO CALIBRADA */}
+            {/* IMAGEN HERO PROMINENTE */}
             <div className="login-image-card">
               <img
                 src="/caso16_login_hero.jpg"
@@ -147,19 +147,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             {/* TIRA DE MÉTRICAS */}
             <div className="login-metrics-grid">
               <div className="cyber-metric-chip">
-                <Database size={13} style={{ color: 'var(--primary)' }} />
+                <Database size={14} style={{ color: 'var(--primary)' }} />
                 <span><strong>113</strong> Cuentas AD</span>
               </div>
               <div className="cyber-metric-chip">
-                <AlertTriangle size={13} style={{ color: 'var(--warning)' }} />
+                <AlertTriangle size={14} style={{ color: 'var(--warning)' }} />
                 <span><strong>269</strong> Hallazgos (R01–R06)</span>
               </div>
               <div className="cyber-metric-chip">
-                <Cpu size={13} style={{ color: 'var(--secondary)' }} />
+                <Cpu size={14} style={{ color: 'var(--secondary)' }} />
                 <span><strong>F1 = 0.941</strong> Optuna M2</span>
               </div>
               <div className="cyber-metric-chip">
-                <CheckCircle2 size={13} style={{ color: 'var(--success)' }} />
+                <CheckCircle2 size={14} style={{ color: 'var(--success)' }} />
                 <span><strong>ISO 27001</strong> A.8.2</span>
               </div>
             </div>
@@ -167,28 +167,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             {/* TRES PILARES RÁPIDOS */}
             <div className="login-capabilities-compact">
               <div className="login-cap-compact-item">
-                <span className="cap-bullet-icon"><Database size={12} style={{ color: 'var(--primary)' }} /></span>
+                <span className="cap-bullet-icon"><Database size={13} style={{ color: 'var(--primary)' }} /></span>
                 <span><strong>SharpHound AD:</strong> 4 dominios integrados (PHANTOM, WRAITH, GHOST, ESC1).</span>
               </div>
               <div className="login-cap-compact-item">
-                <span className="cap-bullet-icon"><Cpu size={12} style={{ color: 'var(--secondary)' }} /></span>
-                <span><strong>Laboratorio IA:</strong> Partición 70/15/15 sin fuga y optimización TPE.</span>
+                <span className="cap-bullet-icon"><Cpu size={13} style={{ color: 'var(--secondary)' }} /></span>
+                <span><strong>Laboratorio IA:</strong> Partición 70/15/15 sin fuga y optimización bayesiana TPE.</span>
               </div>
               <div className="login-cap-compact-item">
-                <span className="cap-bullet-icon"><FileCheck size={12} style={{ color: 'var(--success)' }} /></span>
+                <span className="cap-bullet-icon"><FileCheck size={13} style={{ color: 'var(--success)' }} /></span>
                 <span><strong>Control ISO:</strong> Evaluación continua de derechos de acceso privilegiado.</span>
               </div>
             </div>
           </div>
 
-          {/* PANEL DERECHO: FORMULARIO DE ACCESO ELEGANTE */}
+          {/* PANEL DERECHO: FORMULARIO DE ACCESO PROMINENTE */}
           <div className="login-form-panel">
             <div className="card login-form-card">
               <div className="login-card-header">
-                <h2 style={{ fontSize: '19px', fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>
+                <h2 style={{ fontSize: '21px', fontWeight: 700, color: 'var(--foreground)', margin: 0 }}>
                   Acceso al Command Center
                 </h2>
-                <p style={{ fontSize: '11.5px', color: 'var(--muted-foreground)', marginTop: '3px', marginBottom: 0 }}>
+                <p style={{ fontSize: '12px', color: 'var(--muted-foreground)', marginTop: '4px', marginBottom: 0 }}>
                   Haga clic en un rol para <strong>autocompletar e ingresar con 1 clic</strong>:
                 </p>
               </div>
@@ -230,7 +230,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <div>
                   <label className="login-label">Correo Electrónico / Identidad</label>
                   <div className="search-input-wrap">
-                    <Mail size={14} />
+                    <Mail size={15} />
                     <input
                       type="email"
                       className="search-input"
@@ -238,7 +238,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="usuario@caso16.security"
                       required
-                      style={{ padding: '7px 12px 7px 34px', fontSize: '12.5px' }}
+                      style={{ padding: '8px 12px 8px 36px', fontSize: '13px' }}
                     />
                   </div>
                 </div>
@@ -246,7 +246,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <div>
                   <label className="login-label">Contraseña</label>
                   <div className="search-input-wrap" style={{ position: 'relative' }}>
-                    <Lock size={14} />
+                    <Lock size={15} />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       className="search-input"
@@ -254,7 +254,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••••••"
                       required
-                      style={{ padding: '7px 36px 7px 34px', fontSize: '12.5px' }}
+                      style={{ padding: '8px 38px 8px 36px', fontSize: '13px' }}
                     />
                     <button
                       type="button"
@@ -262,7 +262,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       className="password-eye-btn"
                       title={showPassword ? 'Ocultar' : 'Mostrar'}
                     >
-                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                      {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
                   </div>
                 </div>
@@ -271,15 +271,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   type="submit"
                   className="btn btn-primary"
                   disabled={loading}
-                  style={{ padding: '9px 14px', fontSize: '13px', marginTop: '2px', width: '100%' }}
+                  style={{ padding: '11px 16px', fontSize: '13.5px', marginTop: '3px', width: '100%', fontWeight: 600 }}
                 >
                   {loading ? 'Accediendo al Command Center...' : 'Entrar al Command Center'}
-                  {!loading && <ArrowRight size={14} />}
+                  {!loading && <ArrowRight size={15} />}
                 </button>
               </form>
 
               <div className="login-security-notice">
-                <Shield size={12} style={{ color: 'var(--primary)' }} />
+                <Shield size={13} style={{ color: 'var(--primary)' }} />
                 <span>Autenticación RBAC estricta · Sesión protegida y registrada en auditoría</span>
               </div>
             </div>
