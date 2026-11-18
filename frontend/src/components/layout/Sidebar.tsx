@@ -1,18 +1,11 @@
 import React from 'react'
 import {
   Shield,
-  Activity,
   Users,
   UserX,
   KeyRound,
   Database,
   Cpu,
-  LineChart,
-  Sliders,
-  PlayCircle,
-  FileCheck,
-  Scale,
-  BrainCircuit,
   AlertTriangle,
   Ticket,
   FileCode,
@@ -20,10 +13,9 @@ import {
   FileSpreadsheet,
   Clock,
   Settings,
-  UserCheck,
   ChevronLeft,
   ChevronRight,
-  LogOut,
+  LogIn,
 } from 'lucide-react'
 import { NavItemKey, UserProfile } from '../../types'
 
@@ -38,6 +30,7 @@ interface SidebarProps {
     orphans?: number
     excessive?: number
   }
+  onOpenLoginModal?: () => void
 }
 
 interface NavGroup {
@@ -57,38 +50,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   user,
   counts,
+  onOpenLoginModal,
 }) => {
+  // Estructura optimizada conforme a estándares SOC e ITDR (CrowdStrike / Defender / CyberArk)
   const groups: NavGroup[] = [
     {
-      label: 'Centro de Operaciones',
+      label: 'Operaciones SOC',
       items: [
         { key: 'dashboard', label: 'Security Overview', icon: Shield },
-        { key: 'security-monitor', label: 'Monitoreo en Vivo', icon: Activity },
       ],
     },
     {
-      label: 'Gestión de Identidades',
+      label: 'Identidades (ITDR / IAM)',
       items: [
         { key: 'identities', label: 'Inventario de Cuentas', icon: Users },
         { key: 'orphans', label: 'Cuentas Huérfanas (R01)', icon: UserX, badge: counts?.orphans ?? 81 },
         { key: 'excessive-privs', label: 'Privilegios Excesivos', icon: KeyRound, badge: counts?.excessive ?? 64 },
-        { key: 'directories', label: 'Directorios AD/LDAP', icon: Database },
+        { key: 'directories', label: 'Directorios AD / LDAP', icon: Database },
       ],
     },
     {
       label: 'Inteligencia Artificial',
       items: [
         { key: 'ai-training-center', label: 'AI Training Center', icon: Cpu, badge: 'M1·M2·M3' },
-        { key: 'ai-eda', label: 'Exploración de Datos (EDA)', icon: LineChart },
-        { key: 'ai-models-config', label: 'Configuración M1/M2/M3', icon: Sliders },
-        { key: 'ai-execution', label: 'Consola & Optuna', icon: PlayCircle },
-        { key: 'ai-evaluation', label: 'Métricas & Validación', icon: FileCheck },
-        { key: 'ai-comparison', label: 'Comparación de Modelos', icon: Scale },
-        { key: 'ai-explainability', label: 'Explicabilidad IA', icon: BrainCircuit },
       ],
     },
     {
-      label: 'Gestión de Riesgos',
+      label: 'Gestión de Amenazas',
       items: [
         { key: 'findings', label: 'Hallazgos de Seguridad', icon: AlertTriangle, badge: counts?.findings ?? 269 },
         { key: 'tickets', label: 'Tickets de Remediación', icon: Ticket },
@@ -96,26 +84,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
-      label: 'Automatización',
+      label: 'Automatización & SOAR',
       items: [
         { key: 'automation', label: 'Workflows n8n & LangFlow', icon: Workflow },
       ],
     },
     {
-      label: 'Reportes y Auditoría',
+      label: 'Gobierno & Auditoría',
       items: [
         { key: 'reports', label: 'Centro de Reportes', icon: FileSpreadsheet },
         { key: 'audit', label: 'Bitácora de Auditoría', icon: Clock },
-      ],
-    },
-    {
-      label: 'Administración',
-      items: [
-        { key: 'policies', label: 'Políticas de Seguridad', icon: Settings },
-        { key: 'users-roles', label: 'Usuarios y Roles RBAC', icon: UserCheck },
+        { key: 'policies', label: 'Políticas & Roles RBAC', icon: Settings },
       ],
     },
   ]
+
+  const userInitials = user.avatarInitials || user.fullName.slice(0, 2).toUpperCase()
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -168,16 +152,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </nav>
 
+      {/* User Card in Footer with Fast Switch Button */}
       <div className="sidebar-footer">
-        <div className="user-mini-card">
+        <div
+          className="user-mini-card"
+          onClick={onOpenLoginModal}
+          style={{ cursor: onOpenLoginModal ? 'pointer' : 'default' }}
+          title="Haga clic para cambiar de usuario o ver credenciales"
+        >
           <div className="user-avatar">
-            {user.fullName.slice(0, 2).toUpperCase()}
+            {userInitials}
           </div>
           {!collapsed && (
             <div className="user-details" style={{ flex: 1 }}>
               <span className="user-name">{user.fullName}</span>
               <span className="user-role">{user.role}</span>
             </div>
+          )}
+          {!collapsed && onOpenLoginModal && (
+            <LogIn size={14} style={{ color: 'var(--muted-foreground)' }} />
           )}
         </div>
       </div>

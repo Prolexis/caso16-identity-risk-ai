@@ -36,6 +36,53 @@ export interface UserProfile {
   email: string
   fullName: string
   role: UserRole
+  avatarInitials?: string
+}
+
+export interface SecurityNotification {
+  id: string
+  title: string
+  description: string
+  timestamp: string
+  severity: 'critical' | 'high' | 'medium' | 'info'
+  category: 'threat' | 'orphan' | 'privilege' | 'ticket' | 'ai'
+  read: boolean
+  targetNav: NavItemKey
+}
+
+export const DEMO_USERS: Record<string, UserProfile & { initialRoleKey: string; avatarInitials: string }> = {
+  admin: {
+    username: 'admin@caso16.security',
+    email: 'admin@caso16.security',
+    fullName: 'Alejandro Morales',
+    role: 'Superadministrador',
+    initialRoleKey: 'admin',
+    avatarInitials: 'AM',
+  },
+  soc_analyst: {
+    username: 'analista.soc@caso16.security',
+    email: 'analista.soc@caso16.security',
+    fullName: 'Valeria Quispe',
+    role: 'Analista de ciberseguridad',
+    initialRoleKey: 'soc_analyst',
+    avatarInitials: 'VQ',
+  },
+  auditor: {
+    username: 'auditor.iso@caso16.security',
+    email: 'auditor.iso@caso16.security',
+    fullName: 'Carlos Mendoza',
+    role: 'Auditor',
+    initialRoleKey: 'auditor',
+    avatarInitials: 'CM',
+  },
+  security_engineer: {
+    username: 'ingeniero.ai@caso16.security',
+    email: 'ingeniero.ai@caso16.security',
+    fullName: 'Sofía Benítez',
+    role: 'Administrador de seguridad',
+    initialRoleKey: 'security_engineer',
+    avatarInitials: 'SB',
+  },
 }
 
 export interface HealthResponse {

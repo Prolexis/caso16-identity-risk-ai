@@ -1073,3 +1073,32 @@ a:hover {
   background: var(--primary);
   color: var(--primary-foreground);
 }
+
+/* ==============================================================================
+   FLOATING TOAST NOTIFICATION
+   ============================================================================== */
+.floating-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 100;
+  animation: slideUpToast 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  border-left: 3px solid var(--primary);
+}
+
+@keyframes slideUpToast {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+

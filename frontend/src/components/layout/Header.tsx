@@ -1,15 +1,12 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Sun,
   Moon,
-  Search,
   RefreshCw,
   Bell,
-  CheckCircle2,
-  AlertCircle,
-  Database,
-  ShieldCheck,
   User,
+  LogIn,
+  ChevronDown,
 } from 'lucide-react'
 import { HealthResponse, NavItemKey, ThemeMode, UserProfile, UserRole } from '../../types'
 
@@ -24,31 +21,26 @@ interface HeaderProps {
   onRefreshAll: () => void
   searchQuery: string
   onSearchChange: (q: string) => void
-  findingsCount?: number
+  unreadNotificationsCount?: number
+  onOpenNotifications: () => void
+  onOpenLoginModal: () => void
 }
 
-const navLabels: Record<NavItemKey, { group: string; label: string }> = {
-  dashboard: { group: 'Centro de Operaciones', label: 'Security Overview' },
-  'security-monitor': { group: 'Centro de Operaciones', label: 'Monitoreo en Vivo' },
-  identities: { group: 'Gestión de Identidades', label: 'Inventario de Cuentas' },
-  orphans: { group: 'Gestión de Identidades', label: 'Cuentas Huérfanas (R01)' },
-  'excessive-privs': { group: 'Gestión de Identidades', label: 'Privilegios Excesivos' },
-  directories: { group: 'Gestión de Identidades', label: 'Directorios AD/LDAP' },
-  'ai-training-center': { group: 'Inteligencia Artificial', label: 'AI Training Center' },
-  'ai-eda': { group: 'Inteligencia Artificial', label: 'Exploración de Datos (EDA)' },
-  'ai-models-config': { group: 'Inteligencia Artificial', label: 'Configuración M1/M2/M3' },
-  'ai-execution': { group: 'Inteligencia Artificial', label: 'Consola & Optuna' },
-  'ai-evaluation': { group: 'Inteligencia Artificial', label: 'Métricas & Validación' },
-  'ai-comparison': { group: 'Inteligencia Artificial', label: 'Comparación de Modelos' },
-  'ai-explainability': { group: 'Inteligencia Artificial', label: 'Explicabilidad IA' },
-  findings: { group: 'Gestión de Riesgos', label: 'Hallazgos de Seguridad' },
-  tickets: { group: 'Gestión de Riesgos', label: 'Tickets de Remediación' },
-  rules: { group: 'Gestión de Riesgos', label: 'Reglas de Detección' },
-  automation: { group: 'Automatización', label: 'Workflows n8n & LangFlow' },
-  reports: { group: 'Reportes y Auditoría', label: 'Centro de Reportes' },
-  audit: { group: 'Reportes y Auditoría', label: 'Bitácora de Auditoría' },
-  policies: { group: 'Administración', label: 'Políticas de Seguridad' },
-  'users-roles': { group: 'Administración', label: 'Usuarios y Roles' },
+const navLabels: Record<string, { group: string; label: string }> = {
+  dashboard: { group: 'Operaciones SOC', label: 'Security Overview' },
+  'security-monitor': { group: 'Operaciones SOC', label: 'Monitoreo en Vivo' },
+  identities: { group: 'Identidades (ITDR)', label: 'Inventario de Cuentas' },
+  orphans: { group: 'Identidades (ITDR)', label: 'Cuentas Huérfanas (R01)' },
+  'excessive-privs': { group: 'Identidades (ITDR)', label: 'Privilegios Excesivos' },
+  directories: { group: 'Identidades (ITDR)', label: 'Directorios AD / LDAP' },
+  'ai-training-center': { group: 'Inteligencia Artificial', label: 'AI Training Center (MLOps)' },
+  findings: { group: 'Gestión de Amenazas', label: 'Hallazgos de Seguridad' },
+  tickets: { group: 'Gestión de Amenazas', label: 'Tickets de Remediación' },
+  rules: { group: 'Gestión de Amenazas', label: 'Reglas de Detección (R01–R06)' },
+  automation: { group: 'Automatización & SOAR', label: 'Workflows n8n & LangFlow' },
+  reports: { group: 'Gobierno & Auditoría', label: 'Centro de Reportes' },
+  audit: { group: 'Gobierno & Auditoría', label: 'Bitácora de Auditoría' },
+  policies: { group: 'Gobierno & Auditoría', label: 'Políticas & Roles RBAC' },
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -60,13 +52,13 @@ export const Header: React.FC<HeaderProps> = ({
   health,
   loadingHealth,
   onRefreshAll,
-  searchQuery,
-  onSearchChange,
-  findingsCount = 269,
+  unreadNotificationsCount = 5,
+  onOpenNotifications,
+  onOpenLoginModal,
 }) => {
-  const currentInfo = navLabels[currentNav] ?? { group: 'SOC', label: currentNav }
+  const currentInfo = navLabels[currentNav] ?? { group: 'Command Center', label: currentNav }
   const isHealthy = health?.status === 'ok'
-  const [currentTime, setCurrentTime] = React.useState<string>(() => {
+  const [currentTime, setCurrentTime] = useState<string>(() => {
     const d = new Date()
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
   })
@@ -91,7 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Estado del Backend FastAPI */}
         <div className="backend-status-pill" title={`Conectado a ${health?.source || 'AD SharpHound'}`}>
           <span className={`pulse-dot ${isHealthy ? '' : 'error'}`} />
-          <span>{isHealthy ? 'FastAPI Conectado' : 'Desconectado'}</span>
+          <span>{isHealthy ? 'FastAPI Online' : 'Desconectado'}</span>
           <span style={{ opacity: 0.4 }}>·</span>
           <span>{health?.accounts_loaded ?? 113} cuentas</span>
         </div>
@@ -108,19 +100,20 @@ export const Header: React.FC<HeaderProps> = ({
           title="Sincronizar telemetría con FastAPI"
           aria-label="Sincronizar datos"
         >
-          <RefreshCw size={15} className={loadingHealth ? 'spin-anim' : ''} />
+          <RefreshCw size={14} className={loadingHealth ? 'spin-anim' : ''} />
         </button>
 
-        {/* Centro de notificaciones */}
+        {/* Centro de notificaciones INTERACTIVO */}
         <button
           className="header-icon-btn has-notifications"
-          title={`${findingsCount} hallazgos activos en el SOC`}
-          aria-label="Notificaciones"
+          onClick={onOpenNotifications}
+          title={`${unreadNotificationsCount} notificaciones de seguridad sin leer`}
+          aria-label="Abrir centro de notificaciones"
         >
           <Bell size={15} />
-          {findingsCount > 0 && (
+          {unreadNotificationsCount > 0 && (
             <span className="header-notification-badge">
-              {findingsCount > 99 ? '99+' : findingsCount}
+              {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
             </span>
           )}
         </button>
@@ -135,21 +128,32 @@ export const Header: React.FC<HeaderProps> = ({
           {theme === 'dark' ? <Sun size={15} style={{ color: 'var(--warning)' }} /> : <Moon size={15} style={{ color: 'var(--primary)' }} />}
         </button>
 
-        {/* Selector de Rol RBAC y Usuario */}
+        {/* Selector de Rol RBAC INTERACTIVO */}
         <div className="role-selector-wrap" title="Cambiar rol activo para pruebas RBAC">
-          <User size={13} style={{ color: 'var(--muted-foreground)' }} />
+          <User size={13} style={{ color: 'var(--primary)' }} />
           <select
             className="role-selector"
             value={user.role}
             onChange={(e) => onChangeRole(e.target.value as UserRole)}
             aria-label="Selector de rol RBAC"
           >
-            <option value="Admin">Admin (Control Total)</option>
-            <option value="SOC_Analyst">Analista SOC</option>
-            <option value="Auditor">Auditor (Solo Lectura)</option>
-            <option value="Security_Engineer">Ingeniero Seg.</option>
+            <option value="Superadministrador">🛡️ Superadministrador</option>
+            <option value="Analista de ciberseguridad">🔍 Analista SOC L2</option>
+            <option value="Auditor">📋 Auditor (ISO 27001)</option>
+            <option value="Administrador de seguridad">⚙️ Ingeniero Seg. (AI)</option>
           </select>
         </div>
+
+        {/* Botón de Login / Perfil */}
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={onOpenLoginModal}
+          title="Abrir modal de inicio de sesión con autocompletado"
+          style={{ gap: '6px', fontSize: '11.5px', padding: '5px 10px' }}
+        >
+          <LogIn size={13} />
+          <span>Login Demo</span>
+        </button>
       </div>
     </header>
   )
